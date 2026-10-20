@@ -1,6 +1,6 @@
 {
   "name": "@codesbegin/harness-finance",
-  "description": "DDD double-entry ledger for agents. Cordis-based finance plugin: natural-language bookkeeping for OPCs, solopreneurs, and small teams.",
+  "description": "DDD double-entry ledger for agents, backed by OWL ontology reasoning (FIBO-aligned). Cordis-based finance plugin: natural-language bookkeeping for OPCs, solopreneurs, and small teams.",
   "version": "0.1.0-alpha.1",
   "type": "module",
   "main": "lib/index.js",
@@ -9,15 +9,21 @@
     ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
     "./service": { "types": "./lib/service.d.ts", "default": "./lib/service.js" },
     "./tool": { "types": "./lib/tool.d.ts", "default": "./lib/tool.js" },
+    "./ontology": { "types": "./lib/ontology/index.d.ts", "default": "./lib/ontology/index.js" },
     "./package.json": "./package.json"
   },
-  "files": ["lib/"],
+  "files": [
+    "lib/",
+    "ontology/"
+  ],
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-typert-protocol": "workspace:~",
     "@deepseek-ai/dsh-tools": "workspace:~",
     "@deepseek-ai/schemastery": "workspace:~",
+    "n3": "^0.1.x",
+    "rdf-reasoner-konclude": "^0.8.x",
     "zod": "^3.0.0"
   },
   "devDependencies": {
@@ -25,6 +31,9 @@
     "@deepseek-ai/dsh-typert-protocol": "workspace:~",
     "@deepseek-ai/dsh-tools": "workspace:~",
     "@deepseek-ai/schemastery": "workspace:~",
+    "@types/n3": "^1.16.x",
+    "n3": "^0.1.x",
+    "rdf-reasoner-konclude": "^0.8.x",
     "tsdown": "^0.5.0",
     "typescript": "^5.5.0",
     "zod": "^3.0.0"
