@@ -1,0 +1,104 @@
+@prefix : <http://harness-finance.local/ontology#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# ============================================================
+# harness-finance ontology (TBox)
+#
+# 定义双记账系统的核心概念、关系和公理。
+# ABox（用户的账户/分录实例）在运行时动态加入。
+# 关联 FIBO 的映射通过 rdfs:seeAlso 标注，不强制加载。
+# ============================================================
+
+# ---------- 核心类 ----------
+
+:Account a owl:Class ;
+  rdfs:label "Account" ;
+  rdfs:comment "A ledger account in a double-entry bookkeeping system." ;
+  rdfs:seeAlso <https://spec.edmcouncil.org/fibo/ontology/FBC/AccountsFinancialInstruments/FinancialAccount> .
+
+:DebitAccount a owl:Class ;
+  rdfs:subClassOf :Account ;
+  rdfs:label "Debit-balance Account" ;
+  rdfs:comment "Asset and expense accounts. A debit posting increases balance." .
+
+:CreditAccount a owl:Class ;
+  rdfs:subClassOf :Account ;
+  rdfs:label "Credit-balance Account" ;
+  rdfs:comment "Liability, equity, and income accounts. A credit posting increases balance." .
+
+:AssetAccount a owl:Class ;
+  rdfs:subClassOf :DebitAccount ;
+  rdfs:comment "Cash, inventory, receivables, fixed assets." .
+
+:ExpenseAccount a owl:Class ;
+  rdfs:subClassOf :DebitAccount ;
+  rdfs:comment "Rent, salaries, supplies, utilities." .
+
+:LiabilityAccount a owl:Class ;
+  rdfs:subClassOf :CreditAccount ;
+  rdfs:comment "Payables, loans, accrued expenses." .
+
+:EquityAccount a owl:Class ;
+  rdfs:subClassOf :CreditAccount ;
+  rdfs:comment "Owner's equity, retained earnings." .
+
+:IncomeAccount a owl:Class ;
+  rdfs:subClassOf :CreditAccount ;
+  rdfs:comment "Revenue, sales, interest income." .
+
+# ---------- 过账与分录 ----------
+
+:Posting a owl:Class ;
+  rdfs:label "Posting" ;
+  rdfs:comment "One line of a journal entry: account + direction + amount." .
+
+:JournalEntry a owl:Class ;
+  rdfs:label "Journal Entry" ;
+  rdfs:comment "A balanced set of postings. Debit total must equal credit total." .
+
+# ---------- 对象属性 ----------
+
+:hasPosting a owl:ObjectProperty ;
+  rdfs:domain :JournalEntry ;
+  rdfs:range :Posting ;
+  rdfs:comment "The postings that make up this journal entry." .
+
+:affectsAccount a owl:ObjectProperty ;
+  rdfs:domain :Posting ;
+  rdfs:range :Account ;
+  rdfs:comment "The account this posting debits or credits." .
+
+# ---------- 数据属性 ----------
+
+:hasDirection a owl:DatatypeProperty ;
+  rdfs:domain :Posting ;
+  rdfs:range xsd:string ;
+  rdfs:comment "debit or credit." .
+
+:hasAmount a owl:DatatypeProperty ;
+  rdfs:domain :Posting ;
+  rdfs:range xsd:nonNegativeInteger ;
+  rdfs:comment "Amount in minor units (e.g. cents). Must be positive." .
+
+:hasDescription a owl:DatatypeProperty ;
+  rdfs:domain :JournalEntry ;
+  rdfs:range xsd:string ;
+  rdfs:comment "Human-readable description of the entry." .
+
+# ---------- 公理 ----------
+
+# 借贷平衡：一个 JournalEntry 的所有 debit 过账金额总和
+# 必须等于所有 credit 过账金额总和。
+# （这个公理在 OWL 2 DL 里需要 SWRL 或 SHACL，
+#   这里先标注，实际校验由 reasoner + 业务层共同完成。）
+:BalancedEntry a owl:Class ;
+  rdfs:equivalentClass [
+    a owl:Class ;
+    owl:intersectionOf (
+      :JournalEntry
+    )
+  ] ;
+  rdfs:comment "Marker class for entries that pass the debit=credit invariant." .
