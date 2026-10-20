@@ -4,6 +4,7 @@ import s from '@deepseek-ai/schemastery'
 import { randomUUID } from 'node:crypto'
 import { Account, AccountCategory, JournalEntry, Posting } from './index.js'
 import { FinanceError } from './errors.js'
+import type { OntologyService } from './ontology/index.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -16,7 +17,7 @@ export interface FinanceConfig {
 }
 
 export class FinanceService extends TypertRemoteService {
-  static inject = [] as const
+  static inject = ['ontology'] as const
 
   static Config: s<FinanceConfig> = s.object({
     ledger: s.string().default('default'),
@@ -25,10 +26,12 @@ export class FinanceService extends TypertRemoteService {
   private readonly ledger: string
   private readonly accounts = new Map<string, Account>()
   private readonly entries = new Map<string, JournalEntry>()
+  private readonly ontology: OntologyService
 
   constructor(ctx: Context, config: FinanceConfig = {}) {
     super(ctx, 'finance')
     this.ledger = config.ledger ?? 'default'
+    this.ontology = ctx.ontology
   }
 
   @Remote('getLedger')
@@ -41,6 +44,9 @@ export class FinanceService extends TypertRemoteService {
     const id = `acct-${randomUUID().slice(0, 8)}`
     const acc = new Account({ id, ...input })
     this.accounts.set(id, acc)
+    // 同步 ABox：把账户实例加入本体，声明其属于哪个 Account 子类。
+    // 后续过账时 reasoner 能基于这个类型做一致性推理。
+    this.ontology.addAccount(id, acc.category)
     return acc
   }
 
