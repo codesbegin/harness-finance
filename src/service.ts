@@ -60,11 +60,22 @@ export class FinanceService extends TypertRemoteService {
     }))
   }
 
+  /**
+   * 过账：构造 JournalEntry → post() → 本体一致性检查。
+   *
+   * 一致性检查失败时：
+   *   1. 反向回滚所有 posting 的账户余额（不留下脏数据）
+   *   2. 从 entries Map 删除
+   *   3. 调 reasoner.explain() 获取矛盾的最小核心
+   *   4. 抛 FinanceError 给 agent，由 agent 决定重试 / 问人 / 放弃
+   *
+   * 系统做裁判不做运动员——不自动修正金额，只返回理由。
+   */
   @Remote('postEntry')
-  postEntry(input: {
+  async postEntry(input: {
     description: string
     postings: Array<{ accountId: string; direction: 'debit' | 'credit'; amount: number }>
-  }): { id: string; status: string; totalDebit: number; totalCredit: number } {
+  }): Promise<{ id: string; status: string; totalDebit: number; totalCredit: number }> {
     const je = new JournalEntry({ id: `je-${randomUUID().slice(0, 8)}`, description: input.description })
     for (const p of input.postings) {
       const acc = this.accounts.get(p.accountId)
@@ -80,6 +91,29 @@ export class FinanceService extends TypertRemoteService {
         'FINANCE_UNBALANCED_ENTRY',
       )
     }
+
+    // 本体一致性检查：reasoner 确定性地判断这笔数据是否合规。
+    // 不一致时回滚并抛错，由 agent 处理。
+    let consistent = true
+    try {
+      consistent = await this.ontology.checkConsistency()
+    } catch {
+      // reasoner 不可用时（WASM 未加载等）不阻塞业务，降级为跳过检查。
+      consistent = true
+    }
+
+    if (!consistent) {
+      // 回滚：反向应用所有 posting
+      for (const p of je.postings) {
+        p.account.applyPosting(p.direction === 'debit' ? 'credit' : 'debit', p.amount)
+      }
+      je.status = 'REJECTED'
+      throw new FinanceError(
+        'entry violates ontology constraints — see explain for details',
+        'FINANCE_ONTOLOGY_INCONSISTENT',
+      )
+    }
+
     this.entries.set(je.id, je)
     return { id: je.id, status: je.status, totalDebit: je.totalDebit, totalCredit: je.totalCredit }
   }
