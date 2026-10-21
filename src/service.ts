@@ -45,7 +45,6 @@ export class FinanceService extends TypertRemoteService {
     const acc = new Account({ id, ...input })
     this.accounts.set(id, acc)
     // 同步 ABox：把账户实例加入本体，声明其属于哪个 Account 子类。
-    // 后续过账时 reasoner 能基于这个类型做一致性推理。
     this.ontology.addAccount(id, acc.category)
     return acc
   }
@@ -61,15 +60,16 @@ export class FinanceService extends TypertRemoteService {
   }
 
   /**
-   * 过账：构造 JournalEntry → post() → 本体一致性检查。
+   * 过账：构造 JournalEntry → post() → 写入 ABox → 本体一致性检查。
    *
-   * 一致性检查失败时：
-   *   1. 反向回滚所有 posting 的账户余额（不留下脏数据）
-   *   2. 从 entries Map 删除
-   *   3. 调 reasoner.explain() 获取矛盾的最小核心
-   *   4. 抛 FinanceError 给 agent，由 agent 决定重试 / 问人 / 放弃
+   * 流程：
+   *   1. 构造分录并校验借贷平衡（业务层不变量）
+   *   2. je.post() 更新账户余额
+   *   3. 把分录和所有 posting 写入 ABox（让 reasoner 有数据可推理）
+   *   4. checkConsistency：不一致则回滚（余额 + ABox）并抛错
+   *   5. 一致则提交，存入 entries Map
    *
-   * 系统做裁判不做运动员——不自动修正金额，只返回理由。
+   * 系统做裁判不做运动员——reasoner 不一致时不自动修正金额，只回滚并抛错。
    */
   @Remote('postEntry')
   async postEntry(input: {
@@ -92,21 +92,34 @@ export class FinanceService extends TypertRemoteService {
       )
     }
 
-    // 本体一致性检查：reasoner 确定性地判断这笔数据是否合规。
-    // 不一致时回滚并抛错，由 agent 处理。
+    // 写入 ABox：让 reasoner 能看到这笔分录的结构。
+    // 每个 posting 用 p-<je.id>-<index> 作为实例 ID，保证唯一。
+    this.ontology.addJournalEntry(je.id, je.description)
+    je.postings.forEach((p, i) => {
+      this.ontology.addPosting(
+        `${je.id}-${i}`,
+        je.id,
+        p.account.id,
+        p.direction,
+        p.amount,
+      )
+    })
+
+    // 本体一致性检查
     let consistent = true
     try {
       consistent = await this.ontology.checkConsistency()
     } catch {
-      // reasoner 不可用时（WASM 未加载等）不阻塞业务，降级为跳过检查。
+      // reasoner 不可用（WASM 未加载等）时降级为跳过，不阻塞业务。
       consistent = true
     }
 
     if (!consistent) {
-      // 回滚：反向应用所有 posting
+      // 回滚：反向冲销余额 + 从 ABox 删除实例
       for (const p of je.postings) {
         p.account.applyPosting(p.direction === 'debit' ? 'credit' : 'debit', p.amount)
       }
+      this.ontology.removeJournalEntry(je.id)
       je.status = 'REJECTED'
       throw new FinanceError(
         'entry violates ontology constraints — see explain for details',
