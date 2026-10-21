@@ -16,7 +16,12 @@
     "lib/",
     "ontology/"
   ],
-  "license": "MIT",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "tsdown",
+    "test": "node --import tsx --test test/*.test.ts",
+    "reason": "tsx scripts/reason.ts"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-typert-protocol": "workspace:~",
@@ -35,6 +40,7 @@
     "n3": "^0.1.x",
     "rdf-reasoner-konclude": "^0.8.x",
     "tsdown": "^0.5.0",
+    "tsx": "^4.0.0",
     "typescript": "^5.5.0",
     "zod": "^3.0.0"
   }
