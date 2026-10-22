@@ -29,6 +29,10 @@
   rdfs:label "Credit-balance Account" ;
   rdfs:comment "Liability, equity, and income accounts. A credit posting increases balance." .
 
+# 借方方向和贷方方向不相交——一个账户不能同时是借方和贷方方向。
+# 这是复式记账的基本不变量，reasoner 会用它做 ABox 一致性检查。
+:DebitAccount owl:disjointWith :CreditAccount .
+
 :AssetAccount a owl:Class ;
   rdfs:subClassOf :DebitAccount ;
   rdfs:comment "Cash, inventory, receivables, fixed assets." .
@@ -48,6 +52,15 @@
 :IncomeAccount a owl:Class ;
   rdfs:subClassOf :CreditAccount ;
   rdfs:comment "Revenue, sales, interest income." .
+
+# 五个一级账户类别两两不相交。
+# 一个账户不能同时是资产和负债、收入和费用等。
+# 业务层虽然已经校验了 category 枚举，但这个公理让 reasoner 能在
+# 未来的批量导入 / 外部数据同步场景下自动拦住矛盾数据。
+:AssetAccount   owl:disjointWith :LiabilityAccount , :EquityAccount , :IncomeAccount , :ExpenseAccount .
+:LiabilityAccount owl:disjointWith :EquityAccount , :IncomeAccount , :ExpenseAccount .
+:EquityAccount  owl:disjointWith :IncomeAccount , :ExpenseAccount .
+:IncomeAccount  owl:disjointWith :ExpenseAccount .
 
 # ---------- 过账与分录 ----------
 
