@@ -44,7 +44,6 @@ export class FinanceService extends TypertRemoteService {
     const id = `acct-${randomUUID().slice(0, 8)}`
     const acc = new Account({ id, ...input })
     this.accounts.set(id, acc)
-    // 同步 ABox：把账户实例加入本体，声明其属于哪个 Account 子类。
     this.ontology.addAccount(id, acc.category)
     return acc
   }
@@ -62,14 +61,11 @@ export class FinanceService extends TypertRemoteService {
   /**
    * 过账：构造 JournalEntry → post() → 写入 ABox → 本体一致性检查。
    *
-   * 流程：
-   *   1. 构造分录并校验借贷平衡（业务层不变量）
-   *   2. je.post() 更新账户余额
-   *   3. 把分录和所有 posting 写入 ABox（让 reasoner 有数据可推理）
-   *   4. checkConsistency：不一致则回滚（余额 + ABox）并抛错
-   *   5. 一致则提交，存入 entries Map
-   *
-   * 系统做裁判不做运动员——reasoner 不一致时不自动修正金额，只回滚并抛错。
+   * 一致性检查失败时：
+   *   1. 反向回滚所有 posting 的账户余额
+   *   2. 从 ABox 删除刚加的分录实例
+   *   3. 把刚加的三元组作为"矛盾核心"塞进 explain 返回给 agent
+   *   4. 抛 FinanceError 给 agent，由 agent 决定重试 / 问人 / 放弃
    */
   @Remote('postEntry')
   async postEntry(input: {
@@ -92,8 +88,7 @@ export class FinanceService extends TypertRemoteService {
       )
     }
 
-    // 写入 ABox：让 reasoner 能看到这笔分录的结构。
-    // 每个 posting 用 p-<je.id>-<index> 作为实例 ID，保证唯一。
+    // 写入 ABox
     this.ontology.addJournalEntry(je.id, je.description)
     je.postings.forEach((p, i) => {
       this.ontology.addPosting(
@@ -110,20 +105,33 @@ export class FinanceService extends TypertRemoteService {
     try {
       consistent = await this.ontology.checkConsistency()
     } catch {
-      // reasoner 不可用（WASM 未加载等）时降级为跳过，不阻塞业务。
       consistent = true
     }
 
     if (!consistent) {
-      // 回滚：反向冲销余额 + 从 ABox 删除实例
+      // 回滚业务层余额
       for (const p of je.postings) {
         p.account.applyPosting(p.direction === 'debit' ? 'credit' : 'debit', p.amount)
       }
+      // 回滚 ABox：删除刚加的实例
       this.ontology.removeJournalEntry(je.id)
       je.status = 'REJECTED'
+
+      // 构造"矛盾核心"说明：之前 Store 是一致的，刚加这笔分录后才不一致，
+      // 所以矛盾一定和这笔分录及其关联账户有关。把这些信息给 agent。
+      const explain: string[][] = [
+        [`Entry ${je.id} was rejected because adding it to the ABox made the ontology inconsistent.`],
+        [`Description: ${je.description}`],
+        ...je.postings.map((p, i) => [
+          `Posting ${je.id}-${i}: ${p.direction} ${p.amount} to account ${p.account.id} (${p.account.category})`,
+        ]),
+        [`Hint: check whether any account in this entry conflicts with existing disjointness axioms.`],
+      ]
+
       throw new FinanceError(
         'entry violates ontology constraints — see explain for details',
         'FINANCE_ONTOLOGY_INCONSISTENT',
+        explain,
       )
     }
 
