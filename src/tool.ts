@@ -9,7 +9,6 @@ declare module '@deepseek-ai/cordis' {
     finance: FinanceService
   }
 }
-}
 
 export const name = 'tool-finance'
 export const inject = ['finance', 'tools', 'systemPrompt'] as const
