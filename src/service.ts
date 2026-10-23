@@ -16,6 +16,27 @@ export interface FinanceConfig {
   ledger?: string
 }
 
+export interface EntrySummary {
+  id: string
+  description: string
+  status: string
+  totalDebit: number
+  totalCredit: number
+  postingCount: number
+}
+
+export interface PostingView {
+  accountId: string
+  accountName: string
+  category: AccountCategory
+  direction: 'debit' | 'credit'
+  amount: number
+}
+
+export interface EntryDetail extends EntrySummary {
+  postings: PostingView[]
+}
+
 export class FinanceService extends TypertRemoteService {
   static inject = ['ontology'] as const
 
@@ -109,16 +130,12 @@ export class FinanceService extends TypertRemoteService {
     }
 
     if (!consistent) {
-      // 回滚业务层余额
       for (const p of je.postings) {
         p.account.applyPosting(p.direction === 'debit' ? 'credit' : 'debit', p.amount)
       }
-      // 回滚 ABox：删除刚加的实例
       this.ontology.removeJournalEntry(je.id)
       je.status = 'REJECTED'
 
-      // 构造"矛盾核心"说明：之前 Store 是一致的，刚加这笔分录后才不一致，
-      // 所以矛盾一定和这笔分录及其关联账户有关。把这些信息给 agent。
       const explain: string[][] = [
         [`Entry ${je.id} was rejected because adding it to the ABox made the ontology inconsistent.`],
         [`Description: ${je.description}`],
@@ -159,6 +176,52 @@ export class FinanceService extends TypertRemoteService {
       totalDebit: d,
       totalCredit: c,
       balanced: Math.round(d * 100) === Math.round(c * 100),
+    }
+  }
+
+  // ---------- 读路径（查询） ----------
+
+  /**
+   * 列出最近的分录摘要（新到旧）。
+   * agent 用这个回答"最近记了什么账"。
+   */
+  @Remote('listEntries')
+  listEntries(limit = 20): EntrySummary[] {
+    return [...this.entries.values()]
+      .reverse()
+      .slice(0, limit)
+      .map(je => ({
+        id: je.id,
+        description: je.description,
+        status: je.status,
+        totalDebit: je.totalDebit,
+        totalCredit: je.totalCredit,
+        postingCount: je.postings.length,
+      }))
+  }
+
+  /**
+   * 查询单个分录的完整详情（含所有 posting）。
+   * agent 用这个回答"这笔钱到底花在哪了"。
+   */
+  @Remote('getEntry')
+  getEntry(entryId: string): EntryDetail {
+    const je = this.entries.get(entryId)
+    if (!je) throw new FinanceError(`entry ${entryId} not found`, 'FINANCE_UNKNOWN_ENTRY')
+    return {
+      id: je.id,
+      description: je.description,
+      status: je.status,
+      totalDebit: je.totalDebit,
+      totalCredit: je.totalCredit,
+      postingCount: je.postings.length,
+      postings: je.postings.map(p => ({
+        accountId: p.account.id,
+        accountName: p.account.name,
+        category: p.account.category,
+        direction: p.direction,
+        amount: p.amount,
+      })),
     }
   }
 }
