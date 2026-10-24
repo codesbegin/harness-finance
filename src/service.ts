@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto'
 import { Account, AccountCategory, JournalEntry, Posting } from './index.js'
 import { FinanceError } from './errors.js'
 import type { OntologyService } from './ontology/index.js'
+import { InMemoryAccountRepository, InMemoryEntryRepository } from './repository/memory.js'
+import type { AccountRepository, EntryRepository, FinanceRepositories } from './repository/types.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -14,6 +16,11 @@ declare module '@deepseek-ai/cordis' {
 
 export interface FinanceConfig {
   ledger?: string
+  /**
+   * 存储后端。当前只支持 'memory'。
+   * 'sqlite' 预留，未来接 better-sqlite3。
+   */
+  storage?: 'memory' | 'sqlite'
 }
 
 export interface EntrySummary {
@@ -42,17 +49,33 @@ export class FinanceService extends TypertRemoteService {
 
   static Config: s<FinanceConfig> = s.object({
     ledger: s.string().default('default'),
+    storage: s.string().enum(['memory', 'sqlite']).default('memory'),
   })
 
   private readonly ledger: string
-  private readonly accounts = new Map<string, Account>()
-  private readonly entries = new Map<string, JournalEntry>()
+  private readonly accounts: AccountRepository
+  private readonly entries: EntryRepository
   private readonly ontology: OntologyService
 
   constructor(ctx: Context, config: FinanceConfig = {}) {
     super(ctx, 'finance')
     this.ledger = config.ledger ?? 'default'
     this.ontology = ctx.ontology
+
+    // 当前只实现 memory。未来 sqlite 在这里分支。
+    const repos: FinanceRepositories = config.storage === 'sqlite'
+      ? this.createSqliteRepos(config)
+      : { accounts: new InMemoryAccountRepository(), entries: new InMemoryEntryRepository() }
+    this.accounts = repos.accounts
+    this.entries = repos.entries
+  }
+
+  /**
+   * SQLite 仓库工厂（预留）。
+   * 现在抛出 not implemented，未来接 better-sqlite3 时替换。
+   */
+  private createSqliteRepos(_config: FinanceConfig): FinanceRepositories {
+    throw new Error('sqlite storage not implemented yet — use storage: "memory"')
   }
 
   @Remote('getLedger')
@@ -64,14 +87,14 @@ export class FinanceService extends TypertRemoteService {
   createAccount(input: { name: string; category: AccountCategory; openingBalance?: number }): Account {
     const id = `acct-${randomUUID().slice(0, 8)}`
     const acc = new Account({ id, ...input })
-    this.accounts.set(id, acc)
+    this.accounts.save(acc)
     this.ontology.addAccount(id, acc.category)
     return acc
   }
 
   @Remote('listAccounts')
   listAccounts(): Array<{ id: string; name: string; category: AccountCategory; balance: number }> {
-    return [...this.accounts.values()].map(a => ({
+    return this.accounts.listAll().map(a => ({
       id: a.id,
       name: a.name,
       category: a.category,
@@ -95,7 +118,7 @@ export class FinanceService extends TypertRemoteService {
   }): Promise<{ id: string; status: string; totalDebit: number; totalCredit: number }> {
     const je = new JournalEntry({ id: `je-${randomUUID().slice(0, 8)}`, description: input.description })
     for (const p of input.postings) {
-      const acc = this.accounts.get(p.accountId)
+      const acc = this.accounts.findById(p.accountId)
       if (!acc) throw new FinanceError(`account ${p.accountId} not found`, 'FINANCE_UNKNOWN_ACCOUNT')
       if (!(p.amount > 0)) throw new FinanceError('posting amount must be positive', 'FINANCE_INVALID_POSTING')
       je.addPosting(new Posting({ account: acc, direction: p.direction, amount: p.amount }))
@@ -152,7 +175,7 @@ export class FinanceService extends TypertRemoteService {
       )
     }
 
-    this.entries.set(je.id, je)
+    this.entries.save(je)
     return { id: je.id, status: je.status, totalDebit: je.totalDebit, totalCredit: je.totalCredit }
   }
 
@@ -165,7 +188,7 @@ export class FinanceService extends TypertRemoteService {
   } {
     const bucket = new Map<AccountCategory, { debit: number; credit: number }>()
     let d = 0, c = 0
-    for (const a of this.accounts.values()) {
+    for (const a of this.accounts.listAll()) {
       const cell = bucket.get(a.category) ?? { debit: 0, credit: 0 }
       if (a.normalBalance === 'debit') { cell.debit += a.balance; d += a.balance }
       else { cell.credit += a.balance; c += a.balance }
@@ -187,17 +210,14 @@ export class FinanceService extends TypertRemoteService {
    */
   @Remote('listEntries')
   listEntries(limit = 20): EntrySummary[] {
-    return [...this.entries.values()]
-      .reverse()
-      .slice(0, limit)
-      .map(je => ({
-        id: je.id,
-        description: je.description,
-        status: je.status,
-        totalDebit: je.totalDebit,
-        totalCredit: je.totalCredit,
-        postingCount: je.postings.length,
-      }))
+    return this.entries.listRecent(limit).map(je => ({
+      id: je.id,
+      description: je.description,
+      status: je.status,
+      totalDebit: je.totalDebit,
+      totalCredit: je.totalCredit,
+      postingCount: je.postings.length,
+    }))
   }
 
   /**
@@ -206,7 +226,7 @@ export class FinanceService extends TypertRemoteService {
    */
   @Remote('getEntry')
   getEntry(entryId: string): EntryDetail {
-    const je = this.entries.get(entryId)
+    const je = this.entries.findById(entryId)
     if (!je) throw new FinanceError(`entry ${entryId} not found`, 'FINANCE_UNKNOWN_ENTRY')
     return {
       id: je.id,
