@@ -10,6 +10,7 @@
     "./service": { "types": "./lib/service.d.ts", "default": "./lib/service.js" },
     "./tool": { "types": "./lib/tool.d.ts", "default": "./lib/tool.js" },
     "./ontology": { "types": "./lib/ontology/index.d.ts", "default": "./lib/ontology/index.js" },
+    "./repository": { "types": "./lib/repository/index.d.ts", "default": "./lib/repository/index.js" },
     "./package.json": "./package.json"
   },
   "files": [
@@ -21,6 +22,9 @@
     "build": "tsdown",
     "test": "node --import tsx --test test/*.test.ts",
     "reason": "tsx scripts/reason.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -36,6 +40,7 @@
     "@deepseek-ai/dsh-typert-protocol": "workspace:~",
     "@deepseek-ai/dsh-tools": "workspace:~",
     "@deepseek-ai/schemastery": "workspace:~",
+    "@types/better-sqlite3": "^7.6.11",
     "@types/n3": "^1.16.x",
     "n3": "^0.1.x",
     "rdf-reasoner-konclude": "^0.8.x",
