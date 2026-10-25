@@ -29,6 +29,27 @@ export interface JournalEntryProps {
   date?: Date;
 }
 
+/**
+ * Posting 持久化快照。account 用 ID 引用，不存对象本身。
+ */
+export interface PostingSnapshot {
+  accountId: string;
+  direction: Direction;
+  amount: number;
+  memo: string;
+}
+
+/**
+ * JournalEntry 持久化快照。
+ */
+export interface JournalEntrySnapshot {
+  id: string;
+  description: string;
+  status: JournalEntryStatus;
+  date: Date;
+  postings: PostingSnapshot[];
+}
+
 export class JournalEntry {
   readonly id: string;
   readonly description: string;
@@ -40,6 +61,51 @@ export class JournalEntry {
     this.id = id;
     this.description = description;
     this.date = date;
+  }
+
+  /**
+   * 从持久化快照还原 JournalEntry。
+   * 绕过 DRAFT 状态检查，直接恢复已 POSTED 的分录。
+   *
+   * @param snapshot 分录快照
+   * @param accountsById 已加载的账户表，用于把 posting.accountId 还原成 Account 对象
+   */
+  static restore(snapshot: JournalEntrySnapshot, accountsById: Map<string, Account>): JournalEntry {
+    const je = new JournalEntry({
+      id: snapshot.id,
+      description: snapshot.description,
+      date: snapshot.date,
+    });
+
+    const postings = snapshot.postings.map(p => {
+      const account = accountsById.get(p.accountId);
+      if (!account) {
+        throw new Error(`account ${p.accountId} not found while restoring entry ${snapshot.id}`);
+      }
+      return new Posting({ account, direction: p.direction, amount: p.amount, memo: p.memo });
+    });
+
+    ;(je as { postings: Posting[] }).postings = postings;
+    ;(je as { status: JournalEntryStatus }).status = snapshot.status;
+    return je;
+  }
+
+  /**
+   * 导出持久化快照。
+   */
+  toSnapshot(): JournalEntrySnapshot {
+    return {
+      id: this.id,
+      description: this.description,
+      status: this.status,
+      date: this.date,
+      postings: this.postings.map(p => ({
+        accountId: p.account.id,
+        direction: p.direction,
+        amount: p.amount,
+        memo: p.memo,
+      })),
+    };
   }
 
   addPosting(posting: Posting): void {
