@@ -6,6 +6,7 @@ import { Account, AccountCategory, JournalEntry, Posting } from './index.js'
 import { FinanceError } from './errors.js'
 import type { OntologyService } from './ontology/index.js'
 import { InMemoryAccountRepository, InMemoryEntryRepository } from './repository/memory.js'
+import { createSQLiteRepositories } from './repository/sqlite.js'
 import type { AccountRepository, EntryRepository, FinanceRepositories } from './repository/types.js'
 
 declare module '@deepseek-ai/cordis' {
@@ -17,10 +18,13 @@ declare module '@deepseek-ai/cordis' {
 export interface FinanceConfig {
   ledger?: string
   /**
-   * 存储后端。当前只支持 'memory'。
-   * 'sqlite' 预留，未来接 better-sqlite3。
+   * 存储后端。
+   * - 'memory'：内存 Map，重启丢失，适合开发/测试
+   * - 'sqlite'：持久化到 SQLite 文件，生产用
    */
   storage?: 'memory' | 'sqlite'
+  /** SQLite 文件路径，storage='sqlite' 时生效。默认 './harness-finance.db'。 */
+  dbPath?: string
 }
 
 export interface EntrySummary {
@@ -50,6 +54,7 @@ export class FinanceService extends TypertRemoteService {
   static Config: s<FinanceConfig> = s.object({
     ledger: s.string().default('default'),
     storage: s.string().enum(['memory', 'sqlite']).default('memory'),
+    dbPath: s.string().default('./harness-finance.db'),
   })
 
   private readonly ledger: string
@@ -62,20 +67,11 @@ export class FinanceService extends TypertRemoteService {
     this.ledger = config.ledger ?? 'default'
     this.ontology = ctx.ontology
 
-    // 当前只实现 memory。未来 sqlite 在这里分支。
     const repos: FinanceRepositories = config.storage === 'sqlite'
-      ? this.createSqliteRepos(config)
+      ? createSQLiteRepositories(config.dbPath ?? './harness-finance.db')
       : { accounts: new InMemoryAccountRepository(), entries: new InMemoryEntryRepository() }
     this.accounts = repos.accounts
     this.entries = repos.entries
-  }
-
-  /**
-   * SQLite 仓库工厂（预留）。
-   * 现在抛出 not implemented，未来接 better-sqlite3 时替换。
-   */
-  private createSqliteRepos(_config: FinanceConfig): FinanceRepositories {
-    throw new Error('sqlite storage not implemented yet — use storage: "memory"')
   }
 
   @Remote('getLedger')
