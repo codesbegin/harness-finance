@@ -162,7 +162,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'trial_balance',
-    description: 'Get trial balance by account category; balanced=true means debits == credits.',
+    description: 'Get trial balance summarized by account category. Use trial_balance_detail for per-account breakdown.',
     parameters: {},
     output: {
       schema: {
@@ -180,6 +180,30 @@ export function apply(ctx: Context, config: Config): void {
       return Promise.resolve({ ok: true, ...ctx.finance.trialBalance() })
     },
     presentCall: () => ({ card: 'generic', title: 'Trial balance', kind: 'read' }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'trial_balance_detail',
+    description: 'Per-account trial balance with signed balance. Use this to answer questions like "how much cash do I have?" or "what is my credit card debt?".',
+    parameters: {},
+    output: {
+      schema: {
+        ok: z.boolean(),
+        accounts: z.array(z.object({
+          accountId: z.string(),
+          accountName: z.string(),
+          category: z.string(),
+          normalBalance: z.string(),
+          balance: z.number(),
+          signedBalance: z.number(),
+        })).optional(),
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute() {
+      return Promise.resolve({ ok: true, accounts: ctx.finance.trialBalanceDetail() })
+    },
+    presentCall: () => ({ card: 'generic', title: 'Trial balance detail', kind: 'read' }),
   }))
 
   ctx.tools.register(defineTool({
