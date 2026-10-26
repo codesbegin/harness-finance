@@ -17,13 +17,7 @@ declare module '@deepseek-ai/cordis' {
 
 export interface FinanceConfig {
   ledger?: string
-  /**
-   * 存储后端。
-   * - 'memory'：内存 Map，重启丢失，适合开发/测试
-   * - 'sqlite'：持久化到 SQLite 文件，生产用
-   */
   storage?: 'memory' | 'sqlite'
-  /** SQLite 文件路径，storage='sqlite' 时生效。默认 './harness-finance.db'。 */
   dbPath?: string
 }
 
@@ -46,6 +40,22 @@ export interface PostingView {
 
 export interface EntryDetail extends EntrySummary {
   postings: PostingView[]
+}
+
+/**
+ * 单个账户的试算余额明细。
+ */
+export interface AccountTrialBalance {
+  accountId: string
+  accountName: string
+  category: AccountCategory
+  normalBalance: 'debit' | 'credit'
+  balance: number
+  /**
+   * 有符号余额：正数 = 正常方向（借方账户借余 / 贷方账户贷余）。
+   * 负数 = 反方向（借方账户贷余 / 贷方账户借余）。
+   */
+  signedBalance: number
 }
 
 export class FinanceService extends TypertRemoteService {
@@ -98,15 +108,6 @@ export class FinanceService extends TypertRemoteService {
     }))
   }
 
-  /**
-   * 过账：构造 JournalEntry → post() → 写入 ABox → 本体一致性检查。
-   *
-   * 一致性检查失败时：
-   *   1. 反向回滚所有 posting 的账户余额
-   *   2. 从 ABox 删除刚加的分录实例
-   *   3. 把刚加的三元组作为"矛盾核心"塞进 explain 返回给 agent
-   *   4. 抛 FinanceError 给 agent，由 agent 决定重试 / 问人 / 放弃
-   */
   @Remote('postEntry')
   async postEntry(input: {
     description: string
@@ -128,7 +129,6 @@ export class FinanceService extends TypertRemoteService {
       )
     }
 
-    // 写入 ABox
     this.ontology.addJournalEntry(je.id, je.description)
     je.postings.forEach((p, i) => {
       this.ontology.addPosting(
@@ -140,7 +140,6 @@ export class FinanceService extends TypertRemoteService {
       )
     })
 
-    // 本体一致性检查
     let consistent = true
     try {
       consistent = await this.ontology.checkConsistency()
@@ -175,6 +174,10 @@ export class FinanceService extends TypertRemoteService {
     return { id: je.id, status: je.status, totalDebit: je.totalDebit, totalCredit: je.totalCredit }
   }
 
+  /**
+   * 试算平衡 — 按 category 汇总借贷总额。
+   * agent 用这个回答"账平了吗"。
+   */
   @Remote('trialBalance')
   trialBalance(): {
     byCategory: Array<{ category: AccountCategory; debit: number; credit: number }>
@@ -198,12 +201,24 @@ export class FinanceService extends TypertRemoteService {
     }
   }
 
-  // ---------- 读路径（查询） ----------
-
   /**
-   * 列出最近的分录摘要（新到旧）。
-   * agent 用这个回答"最近记了什么账"。
+   * 试算平衡明细 — 按账户展开。
+   *
+   * 比 trialBalance 更细：每个账户一行，带 signedBalance。
+   * agent 用这个回答"我现金还有多少""信用卡刷了多少"。
    */
+  @Remote('trialBalanceDetail')
+  trialBalanceDetail(): AccountTrialBalance[] {
+    return this.accounts.listAll().map(a => ({
+      accountId: a.id,
+      accountName: a.name,
+      category: a.category,
+      normalBalance: a.normalBalance,
+      balance: a.balance,
+      signedBalance: a.signedBalance,
+    }))
+  }
+
   @Remote('listEntries')
   listEntries(limit = 20): EntrySummary[] {
     return this.entries.listRecent(limit).map(je => ({
@@ -216,10 +231,6 @@ export class FinanceService extends TypertRemoteService {
     }))
   }
 
-  /**
-   * 查询单个分录的完整详情（含所有 posting）。
-   * agent 用这个回答"这笔钱到底花在哪了"。
-   */
   @Remote('getEntry')
   getEntry(entryId: string): EntryDetail {
     const je = this.entries.findById(entryId)
