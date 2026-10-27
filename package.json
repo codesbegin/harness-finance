@@ -18,6 +18,33 @@
     "ontology/"
   ],
   "license": "UNLICENSED",
+  "keywords": [
+    "bookkeeping",
+    "double-entry",
+    "agent",
+    "ddd",
+    "cordis",
+    "ontology",
+    "owl",
+    "rdf",
+    "finance",
+    "ledger"
+  ],
+  "homepage": "https://github.com/codesbegin/harness-finance#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codesbegin/harness-finance.git"
+  },
+  "bugs": {
+    "url": "https://github.com/codesbegin/harness-finance/issues"
+  },
+  "author": {
+    "name": "codesbegin",
+    "url": "https://github.com/codesbegin"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  },
   "scripts": {
     "build": "tsdown",
     "test": "node --import tsx --test test/*.test.ts",
