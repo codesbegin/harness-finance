@@ -1,13 +1,10 @@
 /**
  * InMemoryRepository — 内存实现，用于开发和测试。
- *
- * 就是把 FinanceService 原来的 Map 操作抽出来。
- * 未来 SQLite 实现是同一个接口，FinanceService 不用改。
  */
 
 import type { Account } from '../account.js'
 import type { JournalEntry } from '../journal-entry.js'
-import type { AccountRepository, EntryRepository } from './types.js'
+import type { AccountRepository, EntryRepository, EntrySearchQuery } from './types.js'
 
 export class InMemoryAccountRepository implements AccountRepository {
   private readonly data = new Map<string, Account>()
@@ -42,5 +39,33 @@ export class InMemoryEntryRepository implements EntryRepository {
 
   count(): number {
     return this.data.size
+  }
+
+  search(query: EntrySearchQuery): JournalEntry[] {
+    const limit = query.limit ?? 50
+    let results = [...this.data.values()].reverse()
+
+    if (query.description) {
+      const kw = query.description.toLowerCase()
+      results = results.filter(je => je.description.toLowerCase().includes(kw))
+    }
+
+    if (query.accountId) {
+      results = results.filter(je => je.postings.some(p => p.account.id === query.accountId))
+    }
+
+    if (query.category) {
+      results = results.filter(je => je.postings.some(p => p.account.category === query.category))
+    }
+
+    if (query.status) {
+      results = results.filter(je => je.status === query.status)
+    }
+
+    if (query.minAmount !== undefined) {
+      results = results.filter(je => je.totalDebit >= query.minAmount!)
+    }
+
+    return results.slice(0, limit)
   }
 }
