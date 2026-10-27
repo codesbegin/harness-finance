@@ -5,39 +5,44 @@
  *   1. FinanceService 只依赖接口，不关心存储是内存 Map 还是 SQLite。
  *   2. Repository 负责把 domain 对象（Account / JournalEntry）整体存取。
  *   3. 未来切 SQLite 时，只换实现，不改 FinanceService。
- *
- * 为什么不是每个表一个 Repository：
- *   - JournalEntry 包含 Posting 数组，Posting 又关联 Account。
- *   - 如果 Account 和 Entry 分开存，读 JournalEntry 时要 join 多张表。
- *   - 现在由 EntryRepository.save 负责级联保存 postings，未来 SQLite 实现时再拆表。
  */
 
-import type { Account } from '../account.js'
+import type { Account, AccountCategory } from '../account.js'
 import type { JournalEntry } from '../journal-entry.js'
 
 export interface AccountRepository {
-  /** 新建或更新账户。 */
   save(account: Account): void
-
-  /** 按 ID 查账户；不存在返回 null。 */
   findById(id: string): Account | null
-
-  /** 列出所有账户（按创建顺序）。 */
   listAll(): Account[]
 }
 
+/**
+ * 分录搜索条件。所有字段可选，AND 组合。
+ */
+export interface EntrySearchQuery {
+  /** 描述里包含的关键词（不区分大小写，子串匹配）。 */
+  description?: string
+  /** 只返回涉及某个账户的分录。 */
+  accountId?: string
+  /** 只返回某个类别的账户参与的分录。 */
+  category?: AccountCategory
+  /** 只返回某种状态的分录（DRAFT / POSTED / LOCKED / REJECTED）。 */
+  status?: string
+  /** 金额 >= 该值的分录（按 totalDebit 比较）。 */
+  minAmount?: number
+  /** 返回条数上限，默认 50。 */
+  limit?: number
+}
+
 export interface EntryRepository {
-  /** 新建或更新分录（含所有 postings）。 */
   save(entry: JournalEntry): void
-
-  /** 按 ID 查分录；不存在返回 null。 */
   findById(id: string): JournalEntry | null
-
-  /** 列出最近 N 条分录（新到旧）。 */
   listRecent(limit: number): JournalEntry[]
-
-  /** 总分录数。 */
   count(): number
+  /**
+   * 按条件搜索分录。所有可选字段 AND 组合，新到旧排序。
+   */
+  search(query: EntrySearchQuery): JournalEntry[]
 }
 
 export interface FinanceRepositories {
