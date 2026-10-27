@@ -3,9 +3,6 @@ import assert from 'node:assert/strict'
 import { Account } from '../src/account.js'
 import { Posting, JournalEntry } from '../src/journal-entry.js'
 
-/**
- * 构造一个测试用账户。
- */
 function makeAccount(id: string, category: 'ASSET' | 'EXPENSE' = 'ASSET'): Account {
   return new Account({ id, name: `Test ${id}`, category, openingBalance: 0 })
 }
@@ -78,5 +75,62 @@ describe('JournalEntry 不变量', () => {
     assert.equal(je.totalDebit, 100)
     assert.equal(je.totalCredit, 100)
     assert.equal(je.isBalanced, true)
+  })
+})
+
+describe('JournalEntry 持久化快照（restore / toSnapshot）', () => {
+  test('toSnapshot → restore 是可逆的', () => {
+    const cash = makeAccount('cash', 'ASSET')
+    const rent = makeAccount('rent', 'EXPENSE')
+
+    const je = new JournalEntry({ id: 'je-snap', description: 'test snapshot' })
+    je.addPosting(new Posting({ account: rent, direction: 'debit', amount: 3000 }))
+    je.addPosting(new Posting({ account: cash, direction: 'credit', amount: 3000 }))
+    je.post()
+
+    const snap = je.toSnapshot()
+    const accountsById = new Map([['cash', cash], ['rent', rent]])
+    const restored = JournalEntry.restore(snap, accountsById)
+
+    assert.equal(restored.id, je.id)
+    assert.equal(restored.description, je.description)
+    assert.equal(restored.status, je.status)
+    assert.equal(restored.postings.length, 2)
+    assert.equal(restored.totalDebit, je.totalDebit)
+    assert.equal(restored.totalCredit, je.totalCredit)
+  })
+
+  test('restore 后 posting 关联的 account 是同一对象', () => {
+    const cash = makeAccount('cash', 'ASSET')
+    const rent = makeAccount('rent', 'EXPENSE')
+
+    const je = new JournalEntry({ id: 'je-rel', description: 'link test' })
+    je.addPosting(new Posting({ account: rent, direction: 'debit', amount: 100 }))
+    je.addPosting(new Posting({ account: cash, direction: 'credit', amount: 100 }))
+    je.post()
+
+    const snap = je.toSnapshot()
+    const accountsById = new Map([['cash', cash], ['rent', rent]])
+    const restored = JournalEntry.restore(snap, accountsById)
+
+    // restore 出来的 posting.account 应该就是 accountsById 里的同一个对象
+    const rentPosting = restored.postings.find(p => p.direction === 'debit')!
+    assert.equal(rentPosting.account, rent)
+  })
+
+  test('restore 后再 post() 会抛错（已经是 POSTED）', () => {
+    const cash = makeAccount('cash', 'ASSET')
+    const rent = makeAccount('rent', 'EXPENSE')
+
+    const je = new JournalEntry({ id: 'je-repost', description: 'repost test' })
+    je.addPosting(new Posting({ account: rent, direction: 'debit', amount: 100 }))
+    je.addPosting(new Posting({ account: cash, direction: 'credit', amount: 100 }))
+    je.post()
+
+    const snap = je.toSnapshot()
+    const accountsById = new Map([['cash', cash], ['rent', rent]])
+    const restored = JournalEntry.restore(snap, accountsById)
+
+    assert.throws(() => restored.post(), /POSTED/)
   })
 })
