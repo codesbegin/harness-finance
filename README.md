@@ -1,7 +1,5 @@
 # harness-finance
 
-![CI](https://github.com/codesbegin/harness-finance/actions/workflows/ci.yml/badge.svg)
-
 **A DDD double-entry ledger built for agents. Natural-language bookkeeping for one-person companies, solopreneurs, and small teams.**
 
 > 基于 Cordis 本体论与领域驱动设计（DDD）的财务系统。为 agent 设计，人用自然语言记账，子 agent 自动判断分录方向。个人财务只是试验场景，真正目标是建一个确定性的本体底座，让业务规则机器可验证。
