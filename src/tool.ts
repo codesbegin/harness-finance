@@ -234,6 +234,51 @@ export function apply(ctx: Context, config: Config): void {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'search_entries',
+    description: 'Search journal entries by keyword, account, category, status, or minimum amount. Use this to answer questions like "how much did we spend on office supplies?" or "show all large cash transactions".',
+    parameters: {
+      description: { type: 'string', description: 'Keyword to match in entry description (case-insensitive).' },
+      account_id: { type: 'string', description: 'Only entries involving this account.' },
+      category: {
+        type: 'string',
+        enum: ['asset', 'liability', 'equity', 'income', 'expense'],
+        description: 'Only entries involving accounts of this category.',
+      },
+      status: { type: 'string', description: 'Filter by entry status (DRAFT / POSTED / LOCKED / REJECTED).' },
+      min_amount: { type: 'number', description: 'Only entries with totalDebit >= this value (minor units).' },
+      limit: { type: 'number', description: 'Max results to return (default 50).' },
+    },
+    output: {
+      schema: {
+        ok: z.boolean(),
+        entries: z.array(z.object({
+          id: z.string(),
+          description: z.string(),
+          status: z.string(),
+          totalDebit: z.number(),
+          totalCredit: z.number(),
+          postingCount: z.number(),
+        })).optional(),
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute(args) {
+      return Promise.resolve({
+        ok: true,
+        entries: ctx.finance.searchEntries({
+          ...args.description ? { description: args.description } : {},
+          ...args.account_id ? { accountId: args.account_id } : {},
+          ...args.category ? { category: args.category.toUpperCase() as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE' } : {},
+          ...args.status ? { status: args.status } : {},
+          ...args.min_amount !== undefined ? { minAmount: args.min_amount } : {},
+          ...args.limit !== undefined ? { limit: args.limit } : {},
+        }),
+      })
+    },
+    presentCall: () => ({ card: 'generic', title: 'Search entries', kind: 'read' }),
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'get_entry',
     description: 'Get full detail of one journal entry, including all postings. Use this to answer "what exactly was spent on X?".',
     parameters: {
