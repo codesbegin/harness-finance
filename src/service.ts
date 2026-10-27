@@ -7,7 +7,7 @@ import { FinanceError } from './errors.js'
 import type { OntologyService } from './ontology/index.js'
 import { InMemoryAccountRepository, InMemoryEntryRepository } from './repository/memory.js'
 import { createSQLiteRepositories } from './repository/sqlite.js'
-import type { AccountRepository, EntryRepository, FinanceRepositories } from './repository/types.js'
+import type { AccountRepository, EntryRepository, EntrySearchQuery, FinanceRepositories } from './repository/types.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -42,19 +42,12 @@ export interface EntryDetail extends EntrySummary {
   postings: PostingView[]
 }
 
-/**
- * 单个账户的试算余额明细。
- */
 export interface AccountTrialBalance {
   accountId: string
   accountName: string
   category: AccountCategory
   normalBalance: 'debit' | 'credit'
   balance: number
-  /**
-   * 有符号余额：正数 = 正常方向（借方账户借余 / 贷方账户贷余）。
-   * 负数 = 反方向（借方账户贷余 / 贷方账户借余）。
-   */
   signedBalance: number
 }
 
@@ -174,10 +167,6 @@ export class FinanceService extends TypertRemoteService {
     return { id: je.id, status: je.status, totalDebit: je.totalDebit, totalCredit: je.totalCredit }
   }
 
-  /**
-   * 试算平衡 — 按 category 汇总借贷总额。
-   * agent 用这个回答"账平了吗"。
-   */
   @Remote('trialBalance')
   trialBalance(): {
     byCategory: Array<{ category: AccountCategory; debit: number; credit: number }>
@@ -201,12 +190,6 @@ export class FinanceService extends TypertRemoteService {
     }
   }
 
-  /**
-   * 试算平衡明细 — 按账户展开。
-   *
-   * 比 trialBalance 更细：每个账户一行，带 signedBalance。
-   * agent 用这个回答"我现金还有多少""信用卡刷了多少"。
-   */
   @Remote('trialBalanceDetail')
   trialBalanceDetail(): AccountTrialBalance[] {
     return this.accounts.listAll().map(a => ({
@@ -222,6 +205,22 @@ export class FinanceService extends TypertRemoteService {
   @Remote('listEntries')
   listEntries(limit = 20): EntrySummary[] {
     return this.entries.listRecent(limit).map(je => ({
+      id: je.id,
+      description: je.description,
+      status: je.status,
+      totalDebit: je.totalDebit,
+      totalCredit: je.totalCredit,
+      postingCount: je.postings.length,
+    }))
+  }
+
+  /**
+   * 搜索分录。
+   * agent 用这个回答"上个月办公用品花了多少""所有涉及现金的大额支出"。
+   */
+  @Remote('searchEntries')
+  searchEntries(query: EntrySearchQuery): EntrySummary[] {
+    return this.entries.search(query).map(je => ({
       id: je.id,
       description: je.description,
       status: je.status,
