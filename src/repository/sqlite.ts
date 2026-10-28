@@ -14,7 +14,7 @@ import { Account as AccountModel } from '../account.js'
 import type { JournalEntry } from '../journal-entry.js'
 import { JournalEntry as JournalEntryModel, Posting } from '../journal-entry.js'
 import type { AccountCategory, Direction, JournalEntryStatus } from '../types.js'
-import type { AccountRepository, EntryRepository } from './types.js'
+import type { AccountRepository, EntryRepository, EntrySearchQuery } from './types.js'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS accounts (
@@ -133,7 +133,6 @@ export class SQLiteEntryRepository implements EntryRepository {
         snapshot.date.getTime(),
       )
 
-      // 先删旧 postings（如果是更新），再插新的
       this.db.prepare('DELETE FROM postings WHERE entry_id = ?').run(snapshot.id)
 
       const insertPosting = this.db.prepare(`
@@ -160,7 +159,6 @@ export class SQLiteEntryRepository implements EntryRepository {
 
     const postingRows = this.db.prepare('SELECT * FROM postings WHERE entry_id = ? ORDER BY rowid').all(id) as PostingRow[]
 
-    // 收集所有相关账户 ID，一次性查出
     const accountIds = [...new Set(postingRows.map(p => p.account_id))]
     const accountRows = this.db.prepare(
       `SELECT * FROM accounts WHERE id IN (${accountIds.map(() => '?').join(',')})`,
@@ -207,6 +205,69 @@ export class SQLiteEntryRepository implements EntryRepository {
   count(): number {
     const row = this.db.prepare('SELECT COUNT(*) as c FROM entries').get() as { c: number }
     return row.c
+  }
+
+  /**
+   * 搜索分录 — 把 EntrySearchQuery 翻译成 SQL WHERE 子句。
+   *
+   * 翻译规则：
+   *   description → entries.description LIKE %kw%
+   *   accountId   → EXISTS (postings WHERE entry_id=entries.id AND account_id=?)
+   *   category    → EXISTS (postings JOIN accounts ON postings.account_id=accounts.id WHERE category=?)
+   *   status      → entries.status = ?
+   *   minAmount   → (SELECT SUM(amount) FROM postings WHERE entry_id=entries.id AND direction='debit') >= ?
+   *
+   * 先在 entries 表上跑过滤拿 ID 列表，再逐条 findById 组装 domain 对象。
+   * 数据量小的时候这个写法最直接；以后量大了再改成 JOIN 一次取出。
+   */
+  search(query: EntrySearchQuery): JournalEntry[] {
+    const where: string[] = []
+    const params: unknown[] = []
+    const limit = query.limit ?? 50
+
+    if (query.description) {
+      where.push('entries.description LIKE ?')
+      params.push(`%${query.description}%`)
+    }
+
+    if (query.accountId) {
+      where.push(`EXISTS (SELECT 1 FROM postings p WHERE p.entry_id = entries.id AND p.account_id = ?)`)
+      params.push(query.accountId)
+    }
+
+    if (query.category) {
+      where.push(`EXISTS (
+        SELECT 1 FROM postings p2
+        JOIN accounts a ON p2.account_id = a.id
+        WHERE p2.entry_id = entries.id AND a.category = ?
+      )`)
+      params.push(query.category)
+    }
+
+    if (query.status) {
+      where.push('entries.status = ?')
+      params.push(query.status)
+    }
+
+    if (query.minAmount !== undefined) {
+      where.push(`(
+        SELECT COALESCE(SUM(amount), 0) FROM postings p3
+        WHERE p3.entry_id = entries.id AND p3.direction = 'debit'
+      ) >= ?`)
+      params.push(query.minAmount)
+    }
+
+    const whereSql = where.length > 0 ? 'WHERE ' + where.join(' AND ') : ''
+    const sql = `SELECT entries.id FROM entries ${whereSql} ORDER BY entries.date DESC LIMIT ?`
+    params.push(limit)
+
+    const rows = this.db.prepare(sql).all(...params) as Array<{ id: string }>
+    const result: JournalEntry[] = []
+    for (const row of rows) {
+      const je = this.findById(row.id)
+      if (je) result.push(je)
+    }
+    return result
   }
 }
 
