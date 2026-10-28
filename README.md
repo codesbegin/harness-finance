@@ -33,6 +33,19 @@ pnpm add @codesbegin/harness-finance
 | Ontology TBox | Turtle axioms (account disjointness, etc.) enforced by the reasoner on every post. |
 | ABox | Per-instance triples (accounts, entries, postings) synced to the N3 store; checked for consistency after each post. |
 
+## Agent tools
+
+| Tool | Use case |
+|---|---|
+| `create_account` | Add a new account (asset / liability / equity / income / expense). |
+| `list_accounts` | See all accounts and their current balances. |
+| `post_entry` | Post a balanced entry; over-threshold postings ask for human approval. |
+| `trial_balance` | Check if the books balance, by category. |
+| `trial_balance_detail` | Per-account signed balances ("how much cash do I have?"). |
+| `list_entries` | Browse recent entries (newest first). |
+| `search_entries` | Filter entries by keyword / account / category / status / min amount. |
+| `get_entry` | Full detail of one entry, including all postings. |
+
 ## Error codes
 
 These are **agent-facing** — each code tells the agent what to do next:
@@ -52,11 +65,11 @@ These are **agent-facing** — each code tells the agent what to do next:
 Alpha. Currently shipping:
 
 - Domain model: `Account` / `JournalEntry` / `Posting` with double-entry invariants
-- `FinanceService` with 8 Remote methods: createAccount / listAccounts / postEntry / trialBalance / trialBalanceDetail / listEntries / getEntry / getLedger
-- 7 Cordis tools exposed to agents, with approval-threshold guard
+- `FinanceService` with 9 Remote methods: createAccount / listAccounts / postEntry / trialBalance / trialBalanceDetail / listEntries / searchEntries / getEntry / getLedger
+- 8 Cordis tools exposed to agents, with approval-threshold guard
 - Ontology layer: TBox Turtle + N3 ABox store + lazy Konclude OWL reasoner
 - SQLite persistence (better-sqlite3) with repository pattern; In-memory mode for dev/test
-- Unit tests for domain invariants and repository CRUD
+- Unit tests for domain invariants, repository CRUD, and entry search
 
 ## License
 
