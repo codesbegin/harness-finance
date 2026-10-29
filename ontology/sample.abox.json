@@ -1,0 +1,34 @@
+{
+  "accounts": [
+    { "id": "cash", "category": "ASSET" },
+    { "id": "rent", "category": "EXPENSE" },
+    { "id": "salary", "category": "INCOME" },
+    { "id": "credit-card", "category": "LIABILITY" }
+  ],
+  "entries": [
+    {
+      "id": "je-1",
+      "description": "付房租 3000 元",
+      "postings": [
+        { "accountId": "rent", "direction": "debit", "amount": 3000 },
+        { "accountId": "cash", "direction": "credit", "amount": 3000 }
+      ]
+    },
+    {
+      "id": "je-2",
+      "description": "发工资 15000 元",
+      "postings": [
+        { "accountId": "cash", "direction": "debit", "amount": 15000 },
+        { "accountId": "salary", "direction": "credit", "amount": 15000 }
+      ]
+    },
+    {
+      "id": "je-3",
+      "description": "信用卡买办公用品 200 元",
+      "postings": [
+        { "accountId": "rent", "direction": "debit", "amount": 200 },
+        { "accountId": "credit-card", "direction": "credit", "amount": 200 }
+      ]
+    }
+  ]
+}
