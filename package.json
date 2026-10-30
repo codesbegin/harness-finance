@@ -50,7 +50,8 @@
     "test": "node --import tsx --test test/*.test.ts",
     "reason": "tsx scripts/reason.ts",
     "reason:dot": "tsx scripts/reason.ts --export-dot docs/tbox.dot",
-    "reason:abox": "tsx scripts/reason.ts --abox ontology/sample.abox.json"
+    "reason:abox": "tsx scripts/reason.ts --abox ontology/sample.abox.json",
+    "reason:abox-dot": "tsx scripts/reason.ts --abox ontology/sample.abox.json --export-abox-dot docs/abox.dot"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0"
