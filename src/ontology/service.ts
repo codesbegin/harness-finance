@@ -38,6 +38,8 @@ const accountIri = (id: string) => namedNode(`${NS}acct-${id}`)
 const entryIri = (id: string) => namedNode(`${NS}je-${id}`)
 const postingIri = (id: string) => namedNode(`${NS}p-${id}`)
 
+const shortName = (iri: string) => iri.startsWith(NS) ? iri.slice(NS.length) : iri
+
 export interface OntologyConfig {
   /** 自定义 Turtle 文件路径（默认用内置 finance.ttl）。 */
   ontologyPath?: string
@@ -47,6 +49,15 @@ const DEFAULT_ONTOLOGY = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   '..', '..', 'ontology', 'finance.ttl',
 )
+
+// 账户类别对应节点颜色
+const CATEGORY_COLORS: Record<string, string> = {
+  AssetAccount: '#dcfce7',     // 绿
+  ExpenseAccount: '#fee2e2',   // 红
+  LiabilityAccount: '#fef3c7', // 黄
+  EquityAccount: '#e0e7ff',     // 靛
+  IncomeAccount: '#cffafe',    // 青
+}
 
 export class OntologyService extends TypertRemoteService {
   static inject = [] as const
@@ -187,6 +198,114 @@ export class OntologyService extends TypertRemoteService {
     }
     // 删除分录本身的所有属性
     this.store.deleteQuads(entrySubj, null, null, null)
+  }
+
+  // ---------- ABox 可视化 ----------
+
+  /**
+   * 把当前 ABox 实例导出成 Graphviz DOT。
+   *
+   * 节点：
+   *   - 账户（按类别上色）：acct-xxx
+   *   - 分录（圆角矩形）：je-xxx，label 带 description
+   *   - 过账（菱形）：p-xxx，label 带 direction + 金额
+   *
+   * 边：
+   *   - je-xxx -> p-xxx  (hasPosting)
+   *   - p-xxx -> acct-xxx (affectsAccount)
+   *
+   * 渲染：dot -Tsvg abox.dot -o abox.svg
+   */
+  exportAboxDot(): string {
+    // 收集 ABox 实例（我们 namespace 下、且不是 owl:Class 的）
+    const accountNodes = new Map<string, { category: string }>()
+    const entryNodes = new Map<string, { description: string }>()
+    const postingNodes = new Map<string, { direction: string; amount: string; account: string; entry: string }>()
+
+    // 账户：rdf:type 是我们 namespace 下的 *Account
+    for (const q of this.store.getQuads(null, RDF_TYPE, null, null)) {
+      if (!q.subject.value.startsWith(NS)) continue
+      if (!q.object.value.startsWith(NS)) continue
+      const cls = shortName(q.object.value)
+      const subj = shortName(q.subject.value)
+      if (cls.endsWith('Account') && subj.startsWith('acct-')) {
+        accountNodes.set(subj, { category: cls })
+      } else if (cls === 'JournalEntry' && subj.startsWith('je-')) {
+        entryNodes.set(subj, { description: '' })
+      } else if (cls === 'Posting' && subj.startsWith('p-')) {
+        postingNodes.set(subj, { direction: '', amount: '', account: '', entry: '' })
+      }
+    }
+
+    // 分录 description
+    for (const q of this.store.getQuads(null, namedNode(`${NS}hasDescription`), null, null)) {
+      const subj = shortName(q.subject.value)
+      if (entryNodes.has(subj)) {
+        entryNodes.get(subj)!.description = q.object.value
+      }
+    }
+
+    // posting 的 direction / amount / account / 所属 entry
+    for (const [postingId, node] of postingNodes) {
+      const pSubj = namedNode(`${NS}${postingId}`)
+      const dirObj = this.store.getObjects(pSubj, namedNode(`${NS}hasDirection`), null)
+      const amtObj = this.store.getObjects(pSubj, namedNode(`${NS}hasAmount`), null)
+      const acctObj = this.store.getObjects(pSubj, namedNode(`${NS}affectsAccount`), null)
+      node.direction = dirObj[0]?.value ?? '?'
+      // 分转元
+      const cents = parseInt(amtObj[0]?.value ?? '0', 10)
+      node.amount = (cents / 100).toFixed(2)
+      node.account = acctObj[0] ? shortName(acctObj[0].value) : '?'
+    }
+
+    // 反向找 entry -> posting
+    for (const q of this.store.getQuads(null, namedNode(`${NS}hasPosting`), null, null)) {
+      const entryId = shortName(q.subject.value)
+      const postingId = shortName(q.object.value)
+      if (postingNodes.has(postingId)) {
+        postingNodes.get(postingId)!.entry = entryId
+      }
+    }
+
+    const lines: string[] = []
+    lines.push('digraph ABox {')
+    lines.push('  rankdir=LR;')
+    lines.push('  node [fontname="Helvetica", fontsize=11];')
+    lines.push('  edge [fontname="Helvetica", fontsize=9, color="#64748b"];')
+    lines.push('')
+
+    // 账户节点
+    for (const [id, { category }] of accountNodes) {
+      const color = CATEGORY_COLORS[category] ?? '#f1f5f9'
+      lines.push(`  "${id}" [shape=box, style="rounded,filled", fillcolor="${color}", label="${id}\n(${category})"];`)
+    }
+    lines.push('')
+
+    // 分录节点
+    for (const [id, { description }] of entryNodes) {
+      const label = description ? `${id}\n${description}` : id
+      lines.push(`  "${id}" [shape=note, style="filled", fillcolor="#fff7ed"];`)
+    }
+    lines.push('')
+
+    // posting 节点
+    for (const [id, { direction, amount }] of postingNodes) {
+      lines.push(`  "${id}" [shape=diamond, style="filled", fillcolor="#f3e8ff", label="${direction} ${amount}"];`)
+    }
+    lines.push('')
+
+    // 边：entry -> posting
+    for (const [postingId, { entry }] of postingNodes) {
+      if (entry) lines.push(`  "${entry}" -> "${postingId}";`)
+    }
+    // 边：posting -> account
+    for (const [postingId, { account }] of postingNodes) {
+      if (account) lines.push(`  "${postingId}" -> "${account}";`)
+    }
+
+    lines.push('}')
+    lines.push('')
+    return lines.join('\n')
   }
 
   // ---------- 推理 ----------
