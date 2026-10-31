@@ -45,6 +45,14 @@ export interface OntologyConfig {
   ontologyPath?: string
 }
 
+/** ABox 概览：agent 回答"你现在有多少账"时用。 */
+export interface AboxSummary {
+  totalTriples: number
+  accounts: { total: number; byCategory: Record<string, number> }
+  entries: number
+  postings: { total: number; totalDebit: number; totalCredit: number }
+}
+
 const DEFAULT_ONTOLOGY = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   '..', '..', 'ontology', 'finance.ttl',
@@ -115,6 +123,56 @@ export class OntologyService extends TypertRemoteService {
     return this.store.getQuads(null, RDF_TYPE, namedNode('http://www.w3.org/2002/07/owl#Class'), null)
       .map(q => q.subject.value)
       .filter(v => v.startsWith(NS))
+  }
+
+  /**
+   * ABox 概览统计。纯 Store 查询，不调 reasoner，快。
+   * agent 可以用这个快速回答"你账本里现在有几个账户、多少分录、借贷总额"。
+   */
+  aboxSummary(): AboxSummary {
+    const byCategory: Record<string, number> = {}
+    let accountTotal = 0
+    let entryTotal = 0
+    let postingTotal = 0
+
+    // 按类型数实例
+    for (const q of this.store.getQuads(null, RDF_TYPE, null, null)) {
+      if (!q.subject.value.startsWith(NS) || !q.object.value.startsWith(NS)) continue
+      const cls = shortName(q.object.value)
+      const subj = shortName(q.subject.value)
+      if (!subj.startsWith('acct-') && !subj.startsWith('je-') && !subj.startsWith('p-')) continue
+      if (cls.endsWith('Account')) {
+        accountTotal++
+        byCategory[cls] = (byCategory[cls] ?? 0) + 1
+      } else if (cls === 'JournalEntry') {
+        entryTotal++
+      } else if (cls === 'Posting') {
+        postingTotal++
+      }
+    }
+
+    // 累加借贷金额（从 hasAmount 三元组，单位分，转成元）
+    let totalDebitCents = 0
+    let totalCreditCents = 0
+    for (const q of this.store.getQuads(null, namedNode(`${NS}hasAmount`), null, null)) {
+      const postingId = q.subject.value
+      const cents = parseInt(q.object.value, 10)
+      if (Number.isNaN(cents)) continue
+      const dir = this.store.getObjects(namedNode(postingId), namedNode(`${NS}hasDirection`), null)[0]?.value
+      if (dir === 'debit') totalDebitCents += cents
+      else if (dir === 'credit') totalCreditCents += cents
+    }
+
+    return {
+      totalTriples: this.store.size,
+      accounts: { total: accountTotal, byCategory },
+      entries: entryTotal,
+      postings: {
+        total: postingTotal,
+        totalDebit: totalDebitCents / 100,
+        totalCredit: totalCreditCents / 100,
+      },
+    }
   }
 
   // ---------- ABox 写入 ----------
