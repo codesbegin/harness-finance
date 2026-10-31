@@ -101,18 +101,34 @@ export class FinanceService extends TypertRemoteService {
     }))
   }
 
+  /**
+   * 过账核心流程：
+   *
+   *   1. 加载账户 → 2. 构造 JournalEntry → 3. je.post() 同步 mutate 账户余额（内存）
+   *   4. 同步到 ABox → 5. checkConsistency
+   *   6a. 一致：把所有受影响账户 save 回 repository，分录也 save
+   *   6b. 不一致：reverse 账户余额，reverse 后也要 save 回 repository（否则 SQLite 里余额是错的），
+   *        并从 ABox 删除该分录，抛 FINANCE_ONTOLOGY_INCONSISTENT
+   *
+   * 注意：账户余额在 step 3 就被 mutate 了，repository 里的快照是旧值。
+   * 无论走 6a 还是 6b，都必须显式 accounts.save()，SQLite 持久化才生效。
+   */
   @Remote('postEntry')
   async postEntry(input: {
     description: string
     postings: Array<{ accountId: string; direction: 'debit' | 'credit'; amount: number }>
   }): Promise<{ id: string; status: string; totalDebit: number; totalCredit: number }> {
     const je = new JournalEntry({ id: `je-${randomUUID().slice(0, 8)}`, description: input.description })
+    const affectedAccounts: Account[] = []
+
     for (const p of input.postings) {
       const acc = this.accounts.findById(p.accountId)
       if (!acc) throw new FinanceError(`account ${p.accountId} not found`, 'FINANCE_UNKNOWN_ACCOUNT')
       if (!(p.amount > 0)) throw new FinanceError('posting amount must be positive', 'FINANCE_INVALID_POSTING')
       je.addPosting(new Posting({ account: acc, direction: p.direction, amount: p.amount }))
+      affectedAccounts.push(acc)
     }
+
     try {
       je.post()
     } catch (e) {
@@ -137,13 +153,19 @@ export class FinanceService extends TypertRemoteService {
     try {
       consistent = await this.ontology.checkConsistency()
     } catch {
+      // WASM reasoner 加载失败时降级为放行——TBox 静态检查（DOT 导出）仍可用，
+      // 不应该让推理器故障阻塞正常记账。
       consistent = true
     }
 
     if (!consistent) {
+      // reverse 账户余额（内存里）
       for (const p of je.postings) {
         p.account.applyPosting(p.direction === 'debit' ? 'credit' : 'debit', p.amount)
       }
+      // 关键：把 reverse 后的余额也写回 repository，否则 SQLite 里残留脏数据
+      for (const acc of affectedAccounts) this.accounts.save(acc)
+
       this.ontology.removeJournalEntry(je.id)
       je.status = 'REJECTED'
 
@@ -163,6 +185,8 @@ export class FinanceService extends TypertRemoteService {
       )
     }
 
+    // 通过：把所有受影响账户的新余额持久化
+    for (const acc of affectedAccounts) this.accounts.save(acc)
     this.entries.save(je)
     return { id: je.id, status: je.status, totalDebit: je.totalDebit, totalCredit: je.totalCredit }
   }
