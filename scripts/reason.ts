@@ -7,7 +7,8 @@
  *   npx tsx scripts/reason.ts --abox sample.abox.json       # 加载示例 ABox 跑一致性
  *   npx tsx scripts/reason.ts --abox sample.abox.json --export-abox-dot abox.dot
  *
- * DOT 导出不需要 reasoner——直接从 N3 Store 读 quads。
+ * DOT 导出和 summary 不需要 reasoner——直接从 N3 Store 读 quads，
+ * 即使 WASM reasoner 在 Node 加载失败也能看到输出。
  */
 
 import { Store, Parser, DataFactory } from 'n3'
@@ -179,6 +180,40 @@ function exportAboxDot(store: Store, outPath: string): void {
   console.log(`[reason] ABox DOT -> ${outPath} (${accounts.size} accounts, ${entries.size} entries, ${postings.size} postings)`)
 }
 
+/** 打印 ABox 概览（纯 Store 查询，不依赖 reasoner）。 */
+function printAboxSummary(store: Store): void {
+  const byCategory: Record<string, number> = {}
+  let accountTotal = 0, entryTotal = 0, postingTotal = 0
+  let debitCents = 0, creditCents = 0
+
+  for (const q of store.getQuads(null, RDF_TYPE, null, null)) {
+    if (!q.subject.value.startsWith(NS) || !q.object.value.startsWith(NS)) continue
+    const subj = shortName(q.subject.value)
+    const cls = shortName(q.object.value)
+    if (!subj.startsWith('acct-') && !subj.startsWith('je-') && !subj.startsWith('p-')) continue
+    if (cls.endsWith('Account')) { accountTotal++; byCategory[cls] = (byCategory[cls] ?? 0) + 1 }
+    else if (cls === 'JournalEntry') entryTotal++
+    else if (cls === 'Posting') postingTotal++
+  }
+
+  for (const q of store.getQuads(null, namedNode(`${NS}hasAmount`), null, null)) {
+    const cents = parseInt(q.object.value, 10)
+    if (Number.isNaN(cents)) continue
+    const dir = store.getObjects(q.subject, namedNode(`${NS}hasDirection`), null)[0]?.value
+    if (dir === 'debit') debitCents += cents
+    else if (dir === 'credit') creditCents += cents
+  }
+
+  console.log('\n=== ABox Summary ===')
+  console.log(`  accounts: ${accountTotal}`)
+  for (const [cat, n] of Object.entries(byCategory).sort()) console.log(`    - ${cat}: ${n}`)
+  console.log(`  entries: ${entryTotal}`)
+  console.log(`  postings: ${postingTotal}`)
+  console.log(`  total debit:  ¥${(debitCents / 100).toFixed(2)}`)
+  console.log(`  total credit: ¥${(creditCents / 100).toFixed(2)}`)
+  console.log(`  balanced: ${debitCents === creditCents ? '✅' : '❌ (借贷不平)'}`)
+}
+
 /** 从 JSON 加载 ABox 实例数据。 */
 function loadAbox(store: Store, aboxPath: string): void {
   const json = JSON.parse(fs.readFileSync(aboxPath, 'utf-8'))
@@ -217,13 +252,23 @@ async function main(): Promise<void> {
 
   if (args.aboxPath) loadAbox(store, args.aboxPath)
 
+  // 纯 Store 查询部分——reasoner 失败也能看到这些输出
   if (args.exportDot) exportTboxDot(store, args.exportDot)
   if (args.exportAboxDot) exportAboxDot(store, args.exportAboxDot)
+  if (args.aboxPath) printAboxSummary(store)
 
-  // 需要 reasoner 的部分
-  console.log('[reason] initializing Konclude reasoner...')
-  const reasoner = new RdfReasoner()
-  await reasoner.ready
+  // 需要 reasoner 的部分（可能因 WASM 加载失败而抛错）
+  console.log('\n[reason] initializing Konclude reasoner...')
+  let reasoner: RdfReasoner
+  try {
+    reasoner = new RdfReasoner()
+    await reasoner.ready
+  } catch (err) {
+    console.warn('[reason] ⚠️  Konclude WASM failed to initialize — skipping consistency check.')
+    console.warn(`        ${err instanceof Error ? err.message : String(err)}`)
+    console.warn('        DOT export and summary above are still valid.')
+    process.exit(0)
+  }
 
   console.log('\n=== Consistency Check ===')
   const consistent = await reasoner.checkConsistency(store)
