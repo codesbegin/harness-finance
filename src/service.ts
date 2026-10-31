@@ -4,7 +4,7 @@ import s from '@deepseek-ai/schemastery'
 import { randomUUID } from 'node:crypto'
 import { Account, AccountCategory, JournalEntry, Posting } from './index.js'
 import { FinanceError } from './errors.js'
-import type { OntologyService } from './ontology/index.js'
+import type { AboxSummary, OntologyService } from './ontology/index.js'
 import { InMemoryAccountRepository, InMemoryEntryRepository } from './repository/memory.js'
 import { createSQLiteRepositories } from './repository/sqlite.js'
 import type { AccountRepository, EntryRepository, EntrySearchQuery, FinanceRepositories } from './repository/types.js'
@@ -49,6 +49,13 @@ export interface AccountTrialBalance {
   normalBalance: 'debit' | 'credit'
   balance: number
   signedBalance: number
+}
+
+/** 账本概览：agent 一次性了解账本状态，不用分别调 listAccounts/listEntries/trialBalance。 */
+export interface LedgerSummary {
+  ledger: string
+  ontology: AboxSummary
+  accounts: Array<{ id: string; name: string; category: AccountCategory; balance: number }>
 }
 
 export class FinanceService extends TypertRemoteService {
@@ -99,6 +106,21 @@ export class FinanceService extends TypertRemoteService {
       category: a.category,
       balance: a.balance,
     }))
+  }
+
+  /**
+   * 账本概览：一次调用拿到 ABox 统计 + 账户列表。
+   * agent 冷启动或用户问"我账本现在什么样"时用这个，省得连调三个 Remote。
+   */
+  @Remote('ledgerSummary')
+  ledgerSummary(): LedgerSummary {
+    return {
+      ledger: this.ledger,
+      ontology: this.ontology.aboxSummary(),
+      accounts: this.accounts.listAll().map(a => ({
+        id: a.id, name: a.name, category: a.category, balance: a.balance,
+      })),
+    }
   }
 
   /**
