@@ -42,7 +42,9 @@ export function apply(ctx: Context, config: Config): void {
       + 'Unknown account errors mean you must create_account first. Unbalanced entry errors mean the postings do not sum to zero. '
       + 'If post_entry returns needsApproval=true, stop and ask the human to confirm; retry with approved=true only after explicit consent. '
       + 'If post_entry returns FINANCE_ONTOLOGY_INCONSISTENT, the entry violated ontology constraints — read the explain field for details, '
-      + 'do NOT retry blindly; figure out which account is wrong and ask the human.',
+      + 'do NOT retry blindly; figure out which account is wrong and ask the human. '
+      + 'Use ledger_summary first when the user asks an open-ended question like "how are my finances doing?" — it returns account counts, '
+      + 'total debit/credit, and per-account balances in one call.',
   })
 
   ctx.tools.register(defineTool({
@@ -100,6 +102,32 @@ export function apply(ctx: Context, config: Config): void {
       return Promise.resolve({ ok: true, accounts: ctx.finance.listAccounts() })
     },
     presentCall: () => ({ card: 'generic', title: 'List accounts', kind: 'read' }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'ledger_summary',
+    description: 'One-shot overview of the ledger: ABox triple count, account totals by category, entry/posting counts, total debit/credit, and per-account balances. Use this first for open-ended questions like "how are my finances?" or "what is my net position?".',
+    parameters: {},
+    output: {
+      schema: {
+        ok: z.boolean(),
+        ledger: z.string().optional(),
+        ontology: z.object({
+          totalTriples: z.number(),
+          accounts: z.object({ total: z.number(), byCategory: z.record(z.number()) }),
+          entries: z.number(),
+          postings: z.object({ total: z.number(), totalDebit: z.number(), totalCredit: z.number() }),
+        }).optional(),
+        accounts: z.array(z.object({
+          id: z.string(), name: z.string(), category: z.string(), balance: z.number(),
+        })).optional(),
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute() {
+      return Promise.resolve({ ok: true, ...ctx.finance.ledgerSummary() })
+    },
+    presentCall: () => ({ card: 'generic', title: 'Ledger summary', kind: 'read' }),
   }))
 
   ctx.tools.register(defineTool({
