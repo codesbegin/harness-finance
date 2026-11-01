@@ -37,6 +37,7 @@ pnpm add @codesbegin/harness-finance
 
 | Tool | Use case |
 |---|---|
+| `ledger_summary` | One-shot overview: ABox stats, account counts, total debit/credit, per-account balances. Call this first for open-ended questions. |
 | `create_account` | Add a new account (asset / liability / equity / income / expense). |
 | `list_accounts` | See all accounts and their current balances. |
 | `post_entry` | Post a balanced entry; over-threshold postings ask for human approval. |
@@ -65,11 +66,12 @@ These are **agent-facing** — each code tells the agent what to do next:
 Alpha. Currently shipping:
 
 - Domain model: `Account` / `JournalEntry` / `Posting` with double-entry invariants
-- `FinanceService` with 9 Remote methods: createAccount / listAccounts / postEntry / trialBalance / trialBalanceDetail / listEntries / searchEntries / getEntry / getLedger
-- 8 Cordis tools exposed to agents, with approval-threshold guard
-- Ontology layer: TBox Turtle + N3 ABox store + lazy Konclude OWL reasoner
+- `FinanceService` with 10 Remote methods: getLedger / createAccount / listAccounts / ledgerSummary / postEntry / trialBalance / trialBalanceDetail / listEntries / searchEntries / getEntry
+- 9 Cordis tools exposed to agents, with approval-threshold guard and `ledger_summary` cold-start overview
+- Ontology layer: TBox Turtle + N3 ABox store + lazy Konclude OWL reasoner + ABox summary/export-dot
 - SQLite persistence (better-sqlite3) with repository pattern; In-memory mode for dev/test
 - Unit tests for domain invariants, repository CRUD, and entry search
+- TBox/ABox CLI (`scripts/reason.ts`) with DOT export, sample ABox, and reasoner-failure degradation
 
 ## License
 
