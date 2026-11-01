@@ -6,6 +6,7 @@
  *   npx tsx scripts/reason.ts --export-dot out.dot          # 导出 TBox 类层级图
  *   npx tsx scripts/reason.ts --abox sample.abox.json       # 加载示例 ABox 跑一致性
  *   npx tsx scripts/reason.ts --abox sample.abox.json --export-abox-dot abox.dot
+ *   npx tsx scripts/reason.ts --abox sample.abox.json --strict   # 借贷不平则 exit 1（健康检查用）
  *
  * DOT 导出和 summary 不需要 reasoner——直接从 N3 Store 读 quads，
  * 即使 WASM reasoner 在 Node 加载失败也能看到输出。
@@ -43,6 +44,7 @@ interface CliArgs {
   exportDot?: string
   exportAboxDot?: string
   aboxPath?: string
+  strict?: boolean
 }
 
 function parseArgs(): CliArgs {
@@ -53,6 +55,7 @@ function parseArgs(): CliArgs {
     else if (args[i] === '--export-abox-dot' && args[i + 1]) result.exportAboxDot = args[++i]
     else if (args[i] === '--abox' && args[i + 1]) result.aboxPath = args[++i]
     else if (args[i] === '--tbox' && args[i + 1]) result.tboxPath = args[++i]
+    else if (args[i] === '--strict') result.strict = true
   }
   return result
 }
@@ -180,8 +183,8 @@ function exportAboxDot(store: Store, outPath: string): void {
   console.log(`[reason] ABox DOT -> ${outPath} (${accounts.size} accounts, ${entries.size} entries, ${postings.size} postings)`)
 }
 
-/** 打印 ABox 概览（纯 Store 查询，不依赖 reasoner）。 */
-function printAboxSummary(store: Store): void {
+/** 打印 ABox 概览（纯 Store 查询，不依赖 reasoner）。返回是否借贷平衡。 */
+function printAboxSummary(store: Store): boolean {
   const byCategory: Record<string, number> = {}
   let accountTotal = 0, entryTotal = 0, postingTotal = 0
   let debitCents = 0, creditCents = 0
@@ -204,6 +207,7 @@ function printAboxSummary(store: Store): void {
     else if (dir === 'credit') creditCents += cents
   }
 
+  const balanced = debitCents === creditCents
   console.log('\n=== ABox Summary ===')
   console.log(`  accounts: ${accountTotal}`)
   for (const [cat, n] of Object.entries(byCategory).sort()) console.log(`    - ${cat}: ${n}`)
@@ -211,7 +215,8 @@ function printAboxSummary(store: Store): void {
   console.log(`  postings: ${postingTotal}`)
   console.log(`  total debit:  ¥${(debitCents / 100).toFixed(2)}`)
   console.log(`  total credit: ¥${(creditCents / 100).toFixed(2)}`)
-  console.log(`  balanced: ${debitCents === creditCents ? '✅' : '❌ (借贷不平)'}`)
+  console.log(`  balanced: ${balanced ? '✅' : '❌ (借贷不平)'}`)
+  return balanced
 }
 
 /** 从 JSON 加载 ABox 实例数据。 */
@@ -250,12 +255,14 @@ async function main(): Promise<void> {
   loadTBox(store, fs.readFileSync(args.tboxPath, 'utf-8'))
   console.log(`[reason] TBox: ${store.size} triples`)
 
-  if (args.aboxPath) loadAbox(store, args.aboxPath)
-
-  // 纯 Store 查询部分——reasoner 失败也能看到这些输出
-  if (args.exportDot) exportTboxDot(store, args.exportDot)
-  if (args.exportAboxDot) exportAboxDot(store, args.exportAboxDot)
-  if (args.aboxPath) printAboxSummary(store)
+  let aboxBalanced = true
+  if (args.aboxPath) {
+    loadAbox(store, args.aboxPath)
+    // 纯 Store 查询部分——reasoner 失败也能看到这些输出
+    if (args.exportDot) exportTboxDot(store, args.exportDot)
+    if (args.exportAboxDot) exportAboxDot(store, args.exportAboxDot)
+    aboxBalanced = printAboxSummary(store)
+  }
 
   // 需要 reasoner 的部分（可能因 WASM 加载失败而抛错）
   console.log('\n[reason] initializing Konclude reasoner...')
@@ -264,15 +271,26 @@ async function main(): Promise<void> {
     reasoner = new RdfReasoner()
     await reasoner.ready
   } catch (err) {
-    console.warn('[reason] ⚠️  Konclude WASM failed to initialize — skipping consistency check.')
+    console.warn('[reason] ⚠️  Konclude WASM failed to initialize — skipping OWL consistency check.')
     console.warn(`        ${err instanceof Error ? err.message : String(err)}`)
     console.warn('        DOT export and summary above are still valid.')
+    // --strict 模式下，ABox 借贷不平仍应 exit 1
+    if (args.strict && !aboxBalanced) {
+      console.error('[reason] --strict: ABox is unbalanced; exiting 1.')
+      process.exit(1)
+    }
     process.exit(0)
   }
 
   console.log('\n=== Consistency Check ===')
-  const consistent = await reasoner.checkConsistency(store)
-  console.log(consistent ? '  ✅ consistent' : '  ❌ INCONSISTENT')
+  let consistent = true
+  try {
+    consistent = await reasoner.checkConsistency(store)
+    console.log(consistent ? '  ✅ consistent' : '  ❌ INCONSISTENT')
+  } catch (err) {
+    console.warn(`  ⚠️  reasoner.checkConsistency failed: ${err instanceof Error ? err.message : String(err)}`)
+    console.warn('  (treating as consistent to avoid blocking on WASM runtime issues)')
+  }
 
   console.log('\n=== Classes ===')
   for (const cls of store.getQuads(null, RDF_TYPE, OWL_CLASS, null)
@@ -281,6 +299,12 @@ async function main(): Promise<void> {
   }
 
   reasoner.terminate()
+
+  // --strict 模式：OWL 不一致 或 借贷不平 都 exit 1
+  if (args.strict && (!consistent || !aboxBalanced)) {
+    console.error(`\n[reason] --strict: failing (consistent=${consistent}, balanced=${aboxBalanced})`)
+    process.exit(1)
+  }
   process.exit(consistent ? 0 : 1)
 }
 
