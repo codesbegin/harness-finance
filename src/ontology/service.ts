@@ -50,7 +50,7 @@ export interface AboxSummary {
   totalTriples: number
   accounts: { total: number; byCategory: Record<string, number> }
   entries: number
-  postings: { total: number; totalDebit: number; totalCredit: number }
+  postings: { total: number; totalDebit: number; totalCredit: number; balanced: boolean }
 }
 
 const DEFAULT_ONTOLOGY = path.join(
@@ -128,6 +128,10 @@ export class OntologyService extends TypertRemoteService {
   /**
    * ABox 概览统计。纯 Store 查询，不调 reasoner，快。
    * agent 可以用这个快速回答"你账本里现在有几个账户、多少分录、借贷总额"。
+   *
+   * balanced 表示 ABox 层借贷是否平衡（totalDebit == totalCredit），
+   * 注意这是"数据层"的记账平衡，与 domain 层的 trialBalance 是两套校验：
+   * domain 层在过账时保证每笔分录平衡，ABox 层统计的是所有实例的借贷总额。
    */
   aboxSummary(): AboxSummary {
     const byCategory: Record<string, number> = {}
@@ -171,6 +175,7 @@ export class OntologyService extends TypertRemoteService {
         total: postingTotal,
         totalDebit: totalDebitCents / 100,
         totalCredit: totalCreditCents / 100,
+        balanced: totalDebitCents === totalCreditCents,
       },
     }
   }
