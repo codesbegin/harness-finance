@@ -22,3 +22,10 @@ Thumbs.db
 
 # test coverage
 coverage/
+
+# SQLite ledger database (FinanceService default dbPath is ./harness-finance.db)
+# 财务数据不可入仓：本地跑 storage='sqlite' 模式生成的账本库文件一律忽略。
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
