@@ -32,12 +32,13 @@ pnpm add @codesbegin/harness-finance
 | Approval threshold | Postings above `requireApprovalAbove` return `needsApproval=true` and wait for human confirmation. |
 | Ontology TBox | Turtle axioms (account disjointness, etc.) enforced by the reasoner on every post. |
 | ABox | Per-instance triples (accounts, entries, postings) synced to the N3 store; checked for consistency after each post. |
+| ABox balanced | `aboxSummary().postings.balanced` — whether the ABox data layer projection is intact (debit flow == credit flow). |
 
 ## Agent tools
 
 | Tool | Use case |
 |---|---|
-| `ledger_summary` | One-shot overview: ABox stats, account counts, total debit/credit, per-account balances. Call this first for open-ended questions. |
+| `ledger_summary` | One-shot overview: ABox stats (incl. balanced flag), account counts, total debit/credit, per-account balances. Call this first for open-ended questions. |
 | `create_account` | Add a new account (asset / liability / equity / income / expense). |
 | `list_accounts` | See all accounts and their current balances. |
 | `post_entry` | Post a balanced entry; over-threshold postings ask for human approval. |
@@ -68,10 +69,21 @@ Alpha. Currently shipping:
 - Domain model: `Account` / `JournalEntry` / `Posting` with double-entry invariants
 - `FinanceService` with 10 Remote methods: getLedger / createAccount / listAccounts / ledgerSummary / postEntry / trialBalance / trialBalanceDetail / listEntries / searchEntries / getEntry
 - 9 Cordis tools exposed to agents, with approval-threshold guard and `ledger_summary` cold-start overview
-- Ontology layer: TBox Turtle + N3 ABox store + lazy Konclude OWL reasoner + ABox summary/export-dot
+- Ontology layer: TBox Turtle + N3 ABox store + lazy Konclude OWL reasoner + ABox summary (incl. balanced flag) / export-dot
 - SQLite persistence (better-sqlite3) with repository pattern; In-memory mode for dev/test
-- Unit tests for domain invariants, repository CRUD, and entry search
-- TBox/ABox CLI (`scripts/reason.ts`) with DOT export, sample ABox, and reasoner-failure degradation
+- Unit tests for domain invariants, repository CRUD, entry search, and ABox↔domain sync consistency
+- TBox/ABox CLI (`scripts/reason.ts`) with DOT export, sample ABox, `--strict` health-check, and reasoner-failure degradation
+
+## Design notes
+
+- [docs/abox-design.md](docs/abox-design.md) — ABox 设计
+- [docs/reasoner-capabilities.md](docs/reasoner-capabilities.md) — reasoner 能力
+- [docs/read-model-design.md](docs/read-model-design.md) — 读模型设计
+- [docs/persistence-design.md](docs/persistence-design.md) — SQLite 持久化设计
+- [docs/query-patterns.md](docs/query-patterns.md) — 查询模式
+- [docs/ontology-visualization.md](docs/ontology-visualization.md) — 本体可视化路线
+- [docs/fibo-integration-strategy.md](docs/fibo-integration-strategy.md) — FIBO 接入策略
+- [docs/abox-domain-consistency.md](docs/abox-domain-consistency.md) — ABox 与 domain 层一致性契约
 
 ## License
 
