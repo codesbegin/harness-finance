@@ -106,7 +106,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'ledger_summary',
-    description: 'One-shot overview of the ledger: ABox triple count, account totals by category, entry/posting counts, total debit/credit, and per-account balances. Use this first for open-ended questions like "how are my finances?" or "what is my net position?".',
+    description: 'One-shot overview of the ledger: ABox triple count, account totals by category, entry/posting counts, total debit/credit (and whether the ABox data layer is balanced), and per-account balances. Use this first for open-ended questions like "how are my finances?" or "what is my net position?".',
     parameters: {},
     output: {
       schema: {
@@ -116,7 +116,7 @@ export function apply(ctx: Context, config: Config): void {
           totalTriples: z.number(),
           accounts: z.object({ total: z.number(), byCategory: z.record(z.number()) }),
           entries: z.number(),
-          postings: z.object({ total: z.number(), totalDebit: z.number(), totalCredit: z.number() }),
+          postings: z.object({ total: z.number(), totalDebit: z.number(), totalCredit: z.number(), balanced: z.boolean() }),
         }).optional(),
         accounts: z.array(z.object({
           id: z.string(), name: z.string(), category: z.string(), balance: z.number(),
