@@ -25,25 +25,31 @@ describe('ABox ↔ domain 一致性', () => {
   let ontology: OntologyService
 
   beforeEach(() => {
-    // 最小 ctx：OntologyService 和 FinanceService 构造只需要 ctx 引用存在。
-    // ontologyPath 省略时用默认路径（仓库根 ontology/finance.ttl）。
-    const ctx = {} as unknown as Context
-    ontology = new OntologyService(ctx)
-    svc = new FinanceService(ctx, { storage: 'memory' })
+    // FinanceService 构造时需要 ctx.ontology（static inject = ['ontology']），
+    // 所以先把 OntologyService 挂到最小 ctx 上，再构造 FinanceService。
+    const ctx = {} as unknown as Context & { ontology: OntologyService }
+    ontology = new OntologyService(ctx as unknown as Context)
+    ctx.ontology = ontology
+    svc = new FinanceService(ctx as unknown as Context, { storage: 'memory' })
   })
 
+  /**
+   * 建两个账户。createAccount 生成随机 id（acct-<uuid 前 8 位>），
+   * 测试必须用返回值里的 id，不能硬编码 acct-1 / acct-2。
+   */
   function seedTwoAccounts() {
-    svc.createAccount({ name: '现金', category: 'ASSET' })
-    svc.createAccount({ name: '工资', category: 'INCOME' })
+    const cash = svc.createAccount({ name: '现金', category: 'ASSET' })
+    const salary = svc.createAccount({ name: '工资', category: 'INCOME' })
+    return { cashId: cash.id, salaryId: salary.id }
   }
 
   test('postEntry 后三处计数对齐：账户 / 分录 / 过账', async () => {
-    seedTwoAccounts()
+    const { cashId, salaryId } = seedTwoAccounts()
     await svc.postEntry({
       description: '发工资',
       postings: [
-        { accountId: 'acct-1', direction: 'debit', amount: 5000 },
-        { accountId: 'acct-2', direction: 'credit', amount: 5000 },
+        { accountId: cashId, direction: 'debit', amount: 5000 },
+        { accountId: salaryId, direction: 'credit', amount: 5000 },
       ],
     })
 
@@ -60,19 +66,19 @@ describe('ABox ↔ domain 一致性', () => {
   })
 
   test('ABox 借贷总额平衡且与累计过账金额相等', async () => {
-    seedTwoAccounts()
+    const { cashId, salaryId } = seedTwoAccounts()
     await svc.postEntry({
       description: '发工资',
       postings: [
-        { accountId: 'acct-1', direction: 'debit', amount: 5000 },
-        { accountId: 'acct-2', direction: 'credit', amount: 5000 },
+        { accountId: cashId, direction: 'debit', amount: 5000 },
+        { accountId: salaryId, direction: 'credit', amount: 5000 },
       ],
     })
     await svc.postEntry({
       description: '交房租',
       postings: [
-        { accountId: 'acct-2', direction: 'debit', amount: 1000 },
-        { accountId: 'acct-1', direction: 'credit', amount: 1000 },
+        { accountId: salaryId, direction: 'debit', amount: 1000 },
+        { accountId: cashId, direction: 'credit', amount: 1000 },
       ],
     })
 
@@ -85,15 +91,15 @@ describe('ABox ↔ domain 一致性', () => {
   })
 
   test('借贷不平的分录：domain 抛错且 ABox 不被污染', async () => {
-    seedTwoAccounts()
+    const { cashId, salaryId } = seedTwoAccounts()
     const before = ontology.aboxSummary()
 
     await assert.rejects(
       svc.postEntry({
         description: '不平分录',
         postings: [
-          { accountId: 'acct-1', direction: 'debit', amount: 100 },
-          { accountId: 'acct-2', direction: 'credit', amount: 200 },
+          { accountId: cashId, direction: 'debit', amount: 100 },
+          { accountId: salaryId, direction: 'credit', amount: 200 },
         ],
       }),
       /FINANCE_UNBALANCED_ENTRY|unbalanced/i,
@@ -106,15 +112,16 @@ describe('ABox ↔ domain 一致性', () => {
   })
 
   test('未知账户的分录：domain 抛错且 ABox 不被污染', async () => {
-    seedTwoAccounts()
+    const { salaryId } = seedTwoAccounts()
     const before = ontology.aboxSummary()
 
     await assert.rejects(
       svc.postEntry({
         description: '未知账户',
         postings: [
-          { accountId: 'acct-999', direction: 'debit', amount: 100 },
-          { accountId: 'acct-2', direction: 'credit', amount: 100 },
+          // 合法的账户 id 格式，但从未创建过
+          { accountId: 'acct-not-exist', direction: 'debit', amount: 100 },
+          { accountId: salaryId, direction: 'credit', amount: 100 },
         ],
       }),
       /FINANCE_UNKNOWN_ACCOUNT|not found/i,
