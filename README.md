@@ -13,6 +13,7 @@ Most accounting tools are built for accountants. This one is built for **agents*
 - Team-ready — when you outgrow solo, the same ledger works for a small team with approval thresholds
 - Double-entry by default — every transaction balances; trial balance is a single tool call away
 - Ontology-backed — OWL TBox defines business rules; the reasoner rejects inconsistent entries with an explain, not a guess
+- Survives restarts — domain data lives in SQLite; the ABox is rebuilt from it on startup, so the ontology view never silently goes empty
 - Cordis plugin — drops into any Cordis-based agent host as `ctx.finance`
 
 ## Install
@@ -31,7 +32,7 @@ pnpm add @codesbegin/harness-finance
 | Trial balance | Aggregated balances by category. `balanced=true` means the books are in order. |
 | Approval threshold | Postings above `requireApprovalAbove` return `needsApproval=true` and wait for human confirmation. |
 | Ontology TBox | Turtle axioms (account disjointness, etc.) enforced by the reasoner on every post. |
-| ABox | Per-instance triples (accounts, entries, postings) synced to the N3 store; checked for consistency after each post. |
+| ABox | Per-instance triples (accounts, entries, postings) synced to the N3 store; checked for consistency after each post; rebuilt from SQLite on startup. |
 | ABox balanced | `aboxSummary().postings.balanced` — whether the ABox data layer projection is intact (debit flow == credit flow). |
 
 ## Agent tools
@@ -70,8 +71,9 @@ Alpha. Currently shipping:
 - `FinanceService` with 10 Remote methods: getLedger / createAccount / listAccounts / ledgerSummary / postEntry / trialBalance / trialBalanceDetail / listEntries / searchEntries / getEntry
 - 9 Cordis tools exposed to agents, with approval-threshold guard and `ledger_summary` cold-start overview
 - Ontology layer: TBox Turtle + N3 ABox store + lazy Konclude OWL reasoner + ABox summary (incl. balanced flag) / export-dot
+- ABox rebuild on startup: `FinanceService` reconstructs the N3 instance store from SQLite repositories (accounts + entries + postings), so restarts do not zero out the ontology view
 - SQLite persistence (better-sqlite3) with repository pattern; In-memory mode for dev/test
-- Unit tests for domain invariants, repository CRUD, entry search, and ABox↔domain sync consistency
+- Unit tests for domain invariants, repository CRUD, entry search, ABox↔domain sync consistency, and ABox restart rebuild
 - TBox/ABox CLI (`scripts/reason.ts`) with DOT export, sample ABox, `--strict` health-check, and reasoner-failure degradation
 
 ## Design notes
