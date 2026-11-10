@@ -53,6 +53,23 @@ domain 层让 agent 干活舒服，ABox 层让 reasoner 能检查数据是否违
 永远不会产生 ABox 残留。步骤 5b 的回滚同时覆盖两个视图：
 domain 余额 reverse + ABox 移除分录，保持"两套账要么一起变、要么都不变"。
 
+## 重启后的 ABox 重建
+
+domain 数据在 SQLite 里，ABox 在进程内的 N3 Store 里——重启后 ABox 是空的。
+`FinanceService` 构造时调 `rebuildAbox()`，从 repository 全量读回：
+
+1. `accounts.listAll()` → 逐个 `addAccount(id, category)`
+2. `entries.listAll()` → 跳过 `REJECTED`，逐个 `addJournalEntry` + `addPosting`
+3. posting 实例 id 沿用 `${entryId}-${index}`，与过账时的规则一致
+
+重建不依赖 reasoner（冷启动也能跑），且幂等（N3 Store 对重复 `addQuad` 去重）。
+
+为什么不懒加载：`aboxSummary()` 是同步方法，`ledger_summary` 工具随时可能被调用。
+如果 ABox 空着，agent 会把一个有几千笔分录的账本报成 0 条——
+**静默错误比报错更危险**。重启时全量重建的成本（个人账本数据量很小）远低于这个风险。
+
+测试：`test/abox-rebuild.test.ts`（重启前后计数一致 + 空库无幻影实例）。
+
 ## balanced 字段怎么用
 
 `aboxSummary().postings.balanced` 是纯 Store 计算的布尔值（`totalDebitCents === totalCreditCents`），
@@ -69,8 +86,9 @@ agent 的用法建议：
 
 ## 已知缺口
 
-- `removeJournalEntry` 只删实例三元组，不删 `hasAmount` 等数据属性的历史——
-  目前每次过账都从空 Store 重建 ABox（进程内），不存在增量删除场景；
-  如果未来 ABox 落盘持久化，需要给删除加日志。
-- 本契约只覆盖 InMemory 模式；SQLite 模式的 ABox 同步与 repository 事务
-  边界（`db.transaction()`）还没有独立测试覆盖，值得补。
+- `removeJournalEntry` 只删实例三元组，不留删除审计。目前回滚只发生在本进程的
+  过账事务内，不存在跨进程残留；如果未来 ABox 需要独立审计，再加删除日志表。
+- `SQLiteEntryRepository.save` 内部有事务（entries + postings 原子写），但
+  `FinanceService.postEntry` 的**跨表**事务边界（账户余额 save + 分录 save）
+  还没包进同一个 `db.transaction()`。极端情况下（进程在两次 save 之间崩溃）
+  可能出现余额已变、分录未落库的不一致，需要后续补一个事务包装层。
