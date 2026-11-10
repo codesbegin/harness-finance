@@ -38,6 +38,12 @@ export interface EntryRepository {
   save(entry: JournalEntry): void
   findById(id: string): JournalEntry | null
   listRecent(limit: number): JournalEntry[]
+  /**
+   * 全量返回所有分录，不截断。
+   * 与 listRecent(count()) 的区别：语义明确，不依赖调用方自己算 limit；
+   * ABox 启动重建、全量导出等场景用这个。
+   */
+  listAll(): JournalEntry[]
   count(): number
   /**
    * 按条件搜索分录。所有可选字段 AND 组合，新到旧排序。

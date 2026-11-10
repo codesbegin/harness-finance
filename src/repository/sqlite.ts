@@ -202,6 +202,22 @@ export class SQLiteEntryRepository implements EntryRepository {
     return result
   }
 
+  /**
+   * 全量返回所有分录（按时间升序，与写入顺序一致）。
+   * ABox 启动重建时必须拿全量，不能截断。
+   */
+  listAll(): JournalEntry[] {
+    const rows = this.db.prepare(
+      'SELECT id FROM entries ORDER BY date ASC',
+    ).all() as Array<{ id: string }>
+    const result: JournalEntry[] = []
+    for (const row of rows) {
+      const je = this.findById(row.id)
+      if (je) result.push(je)
+    }
+    return result
+  }
+
   count(): number {
     const row = this.db.prepare('SELECT COUNT(*) as c FROM entries').get() as { c: number }
     return row.c

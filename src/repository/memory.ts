@@ -37,6 +37,10 @@ export class InMemoryEntryRepository implements EntryRepository {
     return [...this.data.values()].reverse().slice(0, limit)
   }
 
+  listAll(): JournalEntry[] {
+    return [...this.data.values()]
+  }
+
   count(): number {
     return this.data.size
   }

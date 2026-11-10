@@ -82,6 +82,40 @@ export class FinanceService extends TypertRemoteService {
       : { accounts: new InMemoryAccountRepository(), entries: new InMemoryEntryRepository() }
     this.accounts = repos.accounts
     this.entries = repos.entries
+
+    // 重启后 ABox 是空的（N3 Store 在进程内），从持久化的 domain 数据重建。
+    // 内存模式下 repository 为空，这一步是 no-op。
+    this.rebuildAbox()
+  }
+
+  /**
+   * 从 repository 重建 ABox。
+   *
+   * 为什么需要：domain 数据可以持久化到 SQLite，但 ABox 是进程内的 N3 Store，
+   * 重启后是空的。如果不重建，aboxSummary() 会把一个有几千条分录的账本报成 0 条，
+   * agent 拿这个数字回答用户"你现在有多少账"——静默错误比报错更危险。
+   *
+   * 重建只依赖 repository 的读取能力，不依赖 reasoner，冷启动也能跑。
+   * 幂等：N3 Store 对重复 addQuad 会去重，重复调用不会产生重复三元组。
+   */
+  private rebuildAbox(): void {
+    for (const acc of this.accounts.listAll()) {
+      this.ontology.addAccount(acc.id, acc.category)
+    }
+    for (const je of this.entries.listAll()) {
+      // 被拒绝的分录不是账本的一部分
+      if (je.status === 'REJECTED') continue
+      this.ontology.addJournalEntry(je.id, je.description)
+      je.postings.forEach((p, i) => {
+        this.ontology.addPosting(
+          `${je.id}-${i}`,
+          je.id,
+          p.account.id,
+          p.direction,
+          p.amount,
+        )
+      })
+    }
   }
 
   @Remote('getLedger')
