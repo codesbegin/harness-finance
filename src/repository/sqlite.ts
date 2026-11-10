@@ -190,9 +190,16 @@ export class SQLiteEntryRepository implements EntryRepository {
     )
   }
 
+  /**
+   * 最近的分录。
+   *
+   * date 只精确到毫秒，连续写入（比如测试里循环记账）会落在一个毫秒内，
+   * 单靠 date 排序结果不稳定。加 rowid 作 tie-breaker：rowid 单调递增，
+   * 等价于写入顺序，保证"后写的排前面"。
+   */
   listRecent(limit: number): JournalEntry[] {
     const rows = this.db.prepare(
-      'SELECT id FROM entries ORDER BY date DESC LIMIT ?',
+      'SELECT id FROM entries ORDER BY date DESC, rowid DESC LIMIT ?',
     ).all(limit) as Array<{ id: string }>
     const result: JournalEntry[] = []
     for (const row of rows) {
@@ -208,7 +215,7 @@ export class SQLiteEntryRepository implements EntryRepository {
    */
   listAll(): JournalEntry[] {
     const rows = this.db.prepare(
-      'SELECT id FROM entries ORDER BY date ASC',
+      'SELECT id FROM entries ORDER BY date ASC, rowid ASC',
     ).all() as Array<{ id: string }>
     const result: JournalEntry[] = []
     for (const row of rows) {
@@ -274,7 +281,7 @@ export class SQLiteEntryRepository implements EntryRepository {
     }
 
     const whereSql = where.length > 0 ? 'WHERE ' + where.join(' AND ') : ''
-    const sql = `SELECT entries.id FROM entries ${whereSql} ORDER BY entries.date DESC LIMIT ?`
+    const sql = `SELECT entries.id FROM entries ${whereSql} ORDER BY entries.date DESC, entries.rowid DESC LIMIT ?`
     params.push(limit)
 
     const rows = this.db.prepare(sql).all(...params) as Array<{ id: string }>

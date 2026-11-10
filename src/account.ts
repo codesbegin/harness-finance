@@ -68,7 +68,18 @@ export class Account {
     this._signedBalance += direction === 'debit' ? amount : -amount;
   }
 
+  /** 对外展示的余额（无符号）。方向看 signedBalance / isNormalDirection。 */
   get balance(): number { return Math.abs(this._signedBalance); }
+  /** 有符号余额：借余为正、贷余为负（与账户类别无关，纯记账符号）。 */
   get signedBalance(): number { return this._signedBalance; }
-  get isNormalDirection(): boolean { return this._signedBalance >= 0; }
+  /**
+   * 余额是否处于该账户类别的"正常方向"。
+   *
+   * 借方正常账户（asset/expense）：正余额（借余）是正常方向；
+   * 贷方正常账户（liability/equity/income）：负余额（贷余）是正常方向。
+   * 注意不能统一用 `signedBalance >= 0` 判断——对所有贷方账户都会误报。
+   */
+  get isNormalDirection(): boolean {
+    return this.normalBalance === 'debit' ? this._signedBalance >= 0 : this._signedBalance <= 0;
+  }
 }

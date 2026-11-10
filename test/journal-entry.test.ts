@@ -16,7 +16,9 @@ describe('JournalEntry 不变量', () => {
     je.addPosting(new Posting({ account: cash, direction: 'credit', amount: 100 }))
     je.post()
     assert.equal(je.status, 'POSTED')
-    assert.equal(cash.balance, -100)
+    // 资产账户贷余（记 credit）→ 有符号余额为负，对外展示的 balance 取绝对值
+    assert.equal(cash.signedBalance, -100)
+    assert.equal(cash.balance, 100)
     assert.equal(rent.balance, 100)
   })
 
@@ -131,6 +133,7 @@ describe('JournalEntry 持久化快照（restore / toSnapshot）', () => {
     const accountsById = new Map([['cash', cash], ['rent', rent]])
     const restored = JournalEntry.restore(snap, accountsById)
 
-    assert.throws(() => restored.post(), /POSTED/)
+    // 错误信息是 'only DRAFT entries can be posted'（小写 posted），不能用 /POSTED/ 匹配
+    assert.throws(() => restored.post(), /only DRAFT/i)
   })
 })
