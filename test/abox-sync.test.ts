@@ -1,6 +1,6 @@
-import { test, describe, beforeEach } from 'node:test'
+import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { OntologyService } from '../src/ontology/service.js'
 import { FinanceService } from '../src/service.js'
 
@@ -24,13 +24,18 @@ describe('ABox ↔ domain 一致性', () => {
   let svc: FinanceService
   let ontology: OntologyService
 
-  beforeEach(() => {
-    // FinanceService 构造时需要 ctx.ontology（static inject = ['ontology']），
-    // 所以先把 OntologyService 挂到最小 ctx 上，再构造 FinanceService。
-    const ctx = {} as unknown as Context & { ontology: OntologyService }
-    ontology = new OntologyService(ctx as unknown as Context)
-    ctx.ontology = ontology
-    svc = new FinanceService(ctx as unknown as Context, { storage: 'memory' })
+  let ctx: Context
+
+  beforeEach(async () => {
+    ctx = new Context()
+    await ctx.plugin(OntologyService)
+    await ctx.plugin(FinanceService, { storage: 'memory' })
+    ontology = ctx.ontology
+    svc = ctx.finance
+  })
+
+  afterEach(() => {
+    ontology.dispose()
   })
 
   /**

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { OntologyService } from '../src/ontology/service.js'
 import { FinanceService } from '../src/service.js'
 
@@ -12,12 +12,11 @@ interface TestContext {
   ontology: OntologyService
 }
 
-/** 模拟一个 Cordis 上下文：挂上 ontology，供 FinanceService 构造使用。 */
-function makeCtx(): TestContext {
-  const ctx = {} as unknown as Context & { ontology: OntologyService }
-  const ontology = new OntologyService(ctx as unknown as Context)
-  ctx.ontology = ontology
-  return { ctx: ctx as unknown as Context, ontology }
+/** 启动一个真实 Cordis 上下文：先加载 ontology，供 FinanceService 构造使用。 */
+async function makeCtx(): Promise<TestContext> {
+  const ctx = new Context()
+  await ctx.plugin(OntologyService)
+  return { ctx, ontology: ctx.ontology }
 }
 
 /**
@@ -45,7 +44,7 @@ describe('ABox 启动重建（SQLite 持久化）', () => {
     const dbPath = path.join(dir, 'ledger.db')
 
     // 第一个"进程"：建 3 个账户 + 2 笔分录
-    const first = makeCtx()
+    const first = await makeCtx()
     const svc1 = new FinanceService(first.ctx, { storage: 'sqlite', dbPath })
     const cash = svc1.createAccount({ name: '现金', category: 'ASSET' })
     const salary = svc1.createAccount({ name: '工资', category: 'INCOME' })
@@ -75,7 +74,7 @@ describe('ABox 启动重建（SQLite 持久化）', () => {
     assert.equal(before.postings.balanced, true)
 
     // 第二个"进程"：新的 OntologyService + 新的 FinanceService，同一个 db 文件
-    const second = makeCtx()
+    const second = await makeCtx()
     const svc2 = new FinanceService(second.ctx, { storage: 'sqlite', dbPath })
 
     const after = second.ontology.aboxSummary()
@@ -91,11 +90,11 @@ describe('ABox 启动重建（SQLite 持久化）', () => {
     assert.equal(svc2.listEntries().length, 2)
   })
 
-  test('空库启动不产生幻影实例', () => {
+  test('空库启动不产生幻影实例', async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-finance-empty-'))
     const dbPath = path.join(dir, 'empty.db')
 
-    const { ctx, ontology } = makeCtx()
+    const { ctx, ontology } = await makeCtx()
     new FinanceService(ctx, { storage: 'sqlite', dbPath })
 
     const summary = ontology.aboxSummary()
