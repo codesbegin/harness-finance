@@ -28,6 +28,15 @@ function serializeError(e: unknown): { isError: true; code: string; message: str
   return { isError: true, code: 'FINANCE_UNKNOWN', message: e instanceof Error ? e.message : String(e) }
 }
 
+const v = {
+  bool: { type: 'boolean' } as const,
+  str: { type: 'string' } as const,
+  num: { type: 'number' } as const,
+  obj: (properties: Record<string, unknown>) => ({ type: 'object', properties, additionalProperties: false }) as const,
+  arr: (items: unknown) => ({ type: 'array', items }) as const,
+  record: (_value: unknown) => ({ type: 'object', additionalProperties: true }) as const,
+}
+
 function maxPostingAmount(postings: Array<{ amount: number }>): number {
   return postings.reduce((m, p) => Math.max(m, Number(p.amount) || 0), 0)
 }
@@ -61,20 +70,20 @@ export function apply(ctx: Context, config: Config): void {
       opening_balance: { type: 'number', description: 'Optional opening balance in minor units.' },
     },
     output: {
-      schema: {
-        ok: z.boolean(),
-        account: z.object({ id: z.string(), name: z.string(), category: z.string() }).optional(),
-        isError: z.boolean().optional(),
-        code: z.string().optional(),
-        message: z.string().optional(),
-      },
+      schema: v.obj({
+        ok: v.bool,
+        account: v.obj({ id: v.str, name: v.str, category: v.str }),
+        isError: v.bool,
+        code: v.str,
+        message: v.str,
+      }),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     execute(args) {
       try {
         const acc = ctx.finance.createAccount({
           name: args.name,
-          category: args.category as 'asset' | 'liability' | 'equity' | 'income' | 'expense',
+          category: args.category.toUpperCase() as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE',
           ...args.opening_balance === undefined ? {} : { openingBalance: args.opening_balance },
         })
         return Promise.resolve({ ok: true, account: { id: acc.id, name: acc.name, category: acc.category } })
@@ -90,12 +99,12 @@ export function apply(ctx: Context, config: Config): void {
     description: 'List all accounts in the current ledger with their current balances.',
     parameters: {},
     output: {
-      schema: {
-        ok: z.boolean(),
-        accounts: z.array(z.object({
-          id: z.string(), name: z.string(), category: z.string(), balance: z.number(),
-        })).optional(),
-      },
+      schema: v.obj({
+        ok: v.bool,
+        accounts: v.arr(v.obj({
+          id: v.str, name: v.str, category: v.str, balance: v.num,
+        })),
+      }),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     execute() {
@@ -109,19 +118,19 @@ export function apply(ctx: Context, config: Config): void {
     description: 'One-shot overview of the ledger: ABox triple count, account totals by category, entry/posting counts, total debit/credit (and whether the ABox data layer is balanced), and per-account balances. Use this first for open-ended questions like "how are my finances?" or "what is my net position?".',
     parameters: {},
     output: {
-      schema: {
-        ok: z.boolean(),
-        ledger: z.string().optional(),
-        ontology: z.object({
-          totalTriples: z.number(),
-          accounts: z.object({ total: z.number(), byCategory: z.record(z.number()) }),
-          entries: z.number(),
-          postings: z.object({ total: z.number(), totalDebit: z.number(), totalCredit: z.number(), balanced: z.boolean() }),
-        }).optional(),
-        accounts: z.array(z.object({
-          id: z.string(), name: z.string(), category: z.string(), balance: z.number(),
-        })).optional(),
-      },
+      schema: v.obj({
+        ok: v.bool,
+        ledger: v.str,
+        ontology: v.obj({
+          totalTriples: v.num,
+          accounts: v.obj({ total: v.num, byCategory: v.record(v.num) }),
+          entries: v.num,
+          postings: v.obj({ total: v.num, totalDebit: v.num, totalCredit: v.num, balanced: v.bool }),
+        }),
+        accounts: v.arr(v.obj({
+          id: v.str, name: v.str, category: v.str, balance: v.num,
+        })),
+      }),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     execute() {
@@ -146,23 +155,23 @@ export function apply(ctx: Context, config: Config): void {
       },
     },
     output: {
-      schema: {
-        ok: z.boolean(),
-        id: z.string().optional(),
-        status: z.string().optional(),
-        totalDebit: z.number().optional(),
-        totalCredit: z.number().optional(),
-        needsApproval: z.boolean().optional(),
-        maxAmount: z.number().optional(),
-        threshold: z.number().optional(),
-        isError: z.boolean().optional(),
-        code: z.string().optional(),
-        message: z.string().optional(),
-        explain: z.array(z.array(z.string())).optional(),
-      },
+      schema: v.obj({
+        ok: v.bool,
+        id: v.str,
+        status: v.str,
+        totalDebit: v.num,
+        totalCredit: v.num,
+        needsApproval: v.bool,
+        maxAmount: v.num,
+        threshold: v.num,
+        isError: v.bool,
+        code: v.str,
+        message: v.str,
+        explain: v.arr(v.arr(v.str)),
+      }),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
-    execute(args) {
+    async execute(args) {
       const postings = (args.postings as Array<{ account_id: string; direction: 'debit' | 'credit'; amount: number }>)
         .map(p => ({ accountId: p.account_id, direction: p.direction, amount: p.amount }))
       const maxAmount = maxPostingAmount(postings)
@@ -179,7 +188,7 @@ export function apply(ctx: Context, config: Config): void {
       }
 
       try {
-        const result = ctx.finance.postEntry({ description: args.description, postings })
+        const result = await ctx.finance.postEntry({ description: args.description, postings })
         return Promise.resolve({ ok: true, ...result, ...args.approved ? { approvedBy: 'human' } : {} })
       } catch (e) {
         return Promise.resolve(serializeError(e))
@@ -193,15 +202,15 @@ export function apply(ctx: Context, config: Config): void {
     description: 'Get trial balance summarized by account category. Use trial_balance_detail for per-account breakdown.',
     parameters: {},
     output: {
-      schema: {
-        ok: z.boolean(),
-        byCategory: z.array(z.object({
-          category: z.string(), debit: z.number(), credit: z.number(),
-        })).optional(),
-        totalDebit: z.number().optional(),
-        totalCredit: z.number().optional(),
-        balanced: z.boolean().optional(),
-      },
+      schema: v.obj({
+        ok: v.bool,
+        byCategory: v.arr(v.obj({
+          category: v.str, debit: v.num, credit: v.num,
+        })),
+        totalDebit: v.num,
+        totalCredit: v.num,
+        balanced: v.bool,
+      }),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     execute() {
@@ -215,17 +224,17 @@ export function apply(ctx: Context, config: Config): void {
     description: 'Per-account trial balance with signed balance. Use this to answer questions like "how much cash do I have?" or "what is my credit card debt?".',
     parameters: {},
     output: {
-      schema: {
-        ok: z.boolean(),
-        accounts: z.array(z.object({
-          accountId: z.string(),
-          accountName: z.string(),
-          category: z.string(),
-          normalBalance: z.string(),
-          balance: z.number(),
-          signedBalance: z.number(),
-        })).optional(),
-      },
+      schema: v.obj({
+        ok: v.bool,
+        accounts: v.arr(v.obj({
+          accountId: v.str,
+          accountName: v.str,
+          category: v.str,
+          normalBalance: v.str,
+          balance: v.num,
+          signedBalance: v.num,
+        })),
+      }),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     execute() {
@@ -241,17 +250,17 @@ export function apply(ctx: Context, config: Config): void {
       limit: { type: 'number', description: 'Max entries to return (default 20).' },
     },
     output: {
-      schema: {
-        ok: z.boolean(),
-        entries: z.array(z.object({
-          id: z.string(),
-          description: z.string(),
-          status: z.string(),
-          totalDebit: z.number(),
-          totalCredit: z.number(),
-          postingCount: z.number(),
-        })).optional(),
-      },
+      schema: v.obj({
+        ok: v.bool,
+        entries: v.arr(v.obj({
+          id: v.str,
+          description: v.str,
+          status: v.str,
+          totalDebit: v.num,
+          totalCredit: v.num,
+          postingCount: v.num,
+        })),
+      }),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     execute(args) {
@@ -277,17 +286,17 @@ export function apply(ctx: Context, config: Config): void {
       limit: { type: 'number', description: 'Max results to return (default 50).' },
     },
     output: {
-      schema: {
-        ok: z.boolean(),
-        entries: z.array(z.object({
-          id: z.string(),
-          description: z.string(),
-          status: z.string(),
-          totalDebit: z.number(),
-          totalCredit: z.number(),
-          postingCount: z.number(),
-        })).optional(),
-      },
+      schema: v.obj({
+        ok: v.bool,
+        entries: v.arr(v.obj({
+          id: v.str,
+          description: v.str,
+          status: v.str,
+          totalDebit: v.num,
+          totalCredit: v.num,
+          postingCount: v.num,
+        })),
+      }),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     execute(args) {
@@ -313,27 +322,27 @@ export function apply(ctx: Context, config: Config): void {
       entry_id: { type: 'string', required: true, description: 'Entry ID from list_entries.' },
     },
     output: {
-      schema: {
-        ok: z.boolean(),
-        entry: z.object({
-          id: z.string(),
-          description: z.string(),
-          status: z.string(),
-          totalDebit: z.number(),
-          totalCredit: z.number(),
-          postingCount: z.number(),
-          postings: z.array(z.object({
-            accountId: z.string(),
-            accountName: z.string(),
-            category: z.string(),
-            direction: z.string(),
-            amount: z.number(),
+      schema: v.obj({
+        ok: v.bool,
+        entry: v.obj({
+          id: v.str,
+          description: v.str,
+          status: v.str,
+          totalDebit: v.num,
+          totalCredit: v.num,
+          postingCount: v.num,
+          postings: v.arr(v.obj({
+            accountId: v.str,
+            accountName: v.str,
+            category: v.str,
+            direction: v.str,
+            amount: v.num,
           })),
-        }).optional(),
-        isError: z.boolean().optional(),
-        code: z.string().optional(),
-        message: z.string().optional(),
-      },
+        }),
+        isError: v.bool,
+        code: v.str,
+        message: v.str,
+      }),
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     execute(args) {
