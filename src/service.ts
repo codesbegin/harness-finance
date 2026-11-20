@@ -63,7 +63,7 @@ export class FinanceService extends TypertRemoteService {
 
   static Config: s<FinanceConfig> = s.object({
     ledger: s.string().default('default'),
-    storage: s.string().enum(['memory', 'sqlite']).default('memory'),
+    storage: s.union(['memory', 'sqlite']).default('memory'),
     dbPath: s.string().default('./harness-finance.db'),
   })
 
