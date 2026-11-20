@@ -71,7 +71,7 @@ export class OntologyService extends TypertRemoteService {
   static inject = [] as const
 
   static Config: s<OntologyConfig> = s.object({
-    ontologyPath: s.string().optional(),
+    ontologyPath: s.string().required(false),
   })
 
   private readonly store: Store
