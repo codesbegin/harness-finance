@@ -7,7 +7,8 @@
  *   3. 未来切 SQLite 时，只换实现，不改 FinanceService。
  */
 
-import type { Account, AccountCategory } from '../account.js'
+import type { Account } from '../account.js'
+import type { AccountCategory } from '../types.js'
 import type { JournalEntry } from '../journal-entry.js'
 
 export interface AccountRepository {
