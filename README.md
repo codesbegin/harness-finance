@@ -16,11 +16,18 @@ Most accounting tools are built for accountants. This one is built for **agents*
 - Survives restarts — domain data lives in SQLite; the ABox is rebuilt from it on startup, so the ontology view never silently goes empty
 - Cordis plugin — drops into any Cordis-based agent host as `ctx.finance`
 
-## Install
+## Run
+
+Not published to npm yet. From a clone:
 
 ```bash
-pnpm add @codesbegin/harness-finance
+pnpm install
+pnpm dev
 ```
+
+`pnpm dev` boots a real Cordis host, installs the plugin (9 tools), then creates two accounts and posts a sample entry. `pnpm test` runs the full suite (43 tests).
+
+The runtime is pinned to DeepSeek Harness `0.2.2-rc.5` (upstream `2e39e704`). `pnpm install` resolves the complete peer graph automatically; no manual peer patching. See `docs/dsh-runtime.md` for the exact package matrix.
 
 ## Concepts
 
@@ -74,7 +81,7 @@ Alpha. Currently shipping:
 - ABox rebuild on startup: `FinanceService` reconstructs the N3 instance store from SQLite repositories (accounts + entries + postings), so restarts do not zero out the ontology view
 - SQLite persistence (better-sqlite3) with repository pattern; In-memory mode for dev/test
 - Unit tests for domain invariants, repository CRUD, entry search, ABox↔domain sync consistency, and ABox restart rebuild
-- TBox/ABox CLI (`scripts/reason.ts`) with DOT export, sample ABox, `--strict` health-check, and reasoner-failure degradation
+- TBox/ABox CLI (`scripts/reason.ts`) with DOT export, sample ABox, `--dry-run` health-check, and reasoner-failure degradation
 
 ## Design notes
 
